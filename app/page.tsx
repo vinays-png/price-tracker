@@ -147,7 +147,7 @@ export default function HomePage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `marketplace-prices-${Date.now()}.csv`;
+    anchor.download = `marketplace-prices-${Date.now()}` + '.csv';
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -231,7 +231,7 @@ export default function HomePage() {
           ) : (
             <div>
               <p className="status">
-                Checked {result.totalRows} rows at {new Date(result.checkedAt).toLocaleString()}.
+                Checked {result!.totalRows} rows at {new Date(result!.checkedAt).toLocaleString()}.
               </p>
 
               <div className="card-grid">
@@ -261,7 +261,7 @@ export default function HomePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {result.rows.map((row) => (
+                    {result!.rows.map((row) => (
                       <tr key={`${row.sku}-${row.asin}-${row.fsn}`}>
                         <td>
                           <strong>{row.sku || "-"}</strong>
