@@ -1,7 +1,15 @@
 "use client";
 
 import { ChangeEvent, useState } from "react";
-import type { CheckPricesResponse } from "@/types";
+import { parseCsvToRows } from "@/lib/csv";
+import type { CheckPricesResponse, RowResult, SourceRow } from "@/types";
+
+type ProgressState = {
+  completed: number;
+  currentLabel: string;
+  remaining: number;
+  total: number;
+};
 
 export default function HomePage() {
   const [csvText, setCsvText] = useState("");
@@ -10,6 +18,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CheckPricesResponse | null>(null);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
 
   async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -31,30 +40,66 @@ export default function HomePage() {
     setIsLoading(true);
     setError("");
     setResult(null);
+    setProgress(null);
 
     try {
-      const response = await fetch("/api/check-prices", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          csvText,
-          limit
-        })
-      });
+      const parsedRows = parseCsvToRows(csvText);
+      const selectedRows = parsedRows.slice(0, clampLimit(limit));
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Price check failed.");
+      if (!selectedRows.length) {
+        throw new Error("No usable rows were found in the CSV.");
       }
 
-      setResult(data as CheckPricesResponse);
+      const completedRows: RowResult[] = [];
+
+      for (let index = 0; index < selectedRows.length; index += 1) {
+        const row = selectedRows[index];
+
+        setProgress({
+          completed: index,
+          currentLabel: buildRowLabel(row),
+          remaining: selectedRows.length - index,
+          total: selectedRows.length
+        });
+
+        const data = await postJson<CheckPricesResponse>("/api/check-prices", {
+          limit: 1,
+          rows: [row]
+        });
+
+        const nextRow = data.rows[0];
+        if (!nextRow) {
+          throw new Error("The server returned no row result.");
+        }
+
+        completedRows.push(nextRow);
+
+        setResult({
+          checkedAt: new Date().toISOString(),
+          totalRows: selectedRows.length,
+          rows: [...completedRows]
+        });
+
+        setProgress({
+          completed: index + 1,
+          currentLabel: buildRowLabel(row),
+          remaining: selectedRows.length - (index + 1),
+          total: selectedRows.length
+        });
+      }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Something went wrong.");
     } finally {
       setIsLoading(false);
+      setProgress((currentProgress) =>
+        currentProgress
+          ? {
+              ...currentProgress,
+              currentLabel: "",
+              remaining: 0
+            }
+          : null
+      );
     }
   }
 
@@ -110,6 +155,12 @@ export default function HomePage() {
   const totalAmazonBlocked = result?.rows.filter((row) => row.amazon.blocked).length ?? 0;
   const totalAmazonSuccess = result?.rows.filter((row) => row.amazon.ok && row.amazon.price !== null).length ?? 0;
   const totalFlipkartSuccess = result?.rows.filter((row) => row.flipkart.ok && row.flipkart.price !== null).length ?? 0;
+  const hasResults = Boolean(result && result.rows.length);
+  const progressMessage = progress
+    ? `Completed ${progress.completed} of ${progress.total} | Remaining ${progress.remaining}${
+        progress.currentLabel ? ` | Current ${progress.currentLabel}` : ""
+      }`
+    : "";
 
   return (
     <main className="page-shell">
@@ -162,8 +213,14 @@ export default function HomePage() {
 
         <section className="panel results">
           {error ? <p className="status">{error}</p> : null}
+          {progressMessage ? <p className="status">{progressMessage}</p> : null}
 
-          {!result ? (
+          {!hasResults && isLoading ? (
+            <div>
+              <p className="eyebrow">Fetching</p>
+              <p>The app is processing your CSV now. Partial results will appear as each SKU finishes.</p>
+            </div>
+          ) : !hasResults ? (
             <div>
               <p className="eyebrow">Ready</p>
               <p>
@@ -241,6 +298,44 @@ export default function HomePage() {
       </section>
     </main>
   );
+}
+
+async function postJson<T>(url: string, body: unknown) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const rawText = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const trimmedText = rawText.trim();
+    const friendlyMessage = trimmedText.startsWith("<")
+      ? "The server returned HTML instead of JSON. Check deployment protection or the server response."
+      : trimmedText || "The server returned a non-JSON response.";
+    throw new Error(friendlyMessage);
+  }
+
+  const data = JSON.parse(rawText) as { error?: string };
+
+  if (!response.ok) {
+    throw new Error(data.error || "Price check failed.");
+  }
+
+  return data as T;
+}
+
+function buildRowLabel(row: SourceRow) {
+  return row.sku || row.asin || row.fsn || row.title || row.searchQuery || "current row";
+}
+
+function clampLimit(value: number) {
+  if (!Number.isFinite(value)) return 25;
+  return Math.min(Math.max(Math.trunc(value), 1), 100);
 }
 
 function MarketplaceCell(props: {
