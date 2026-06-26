@@ -12,6 +12,22 @@ export async function scrapeAmazon(row: SourceRow, options: AmazonScrapeOptions 
   const maxAttempts = clampAttempts(options.maxAttempts ?? Number(process.env.AMAZON_ATTEMPTS_PER_REQUEST || 2));
   const attemptOffset = Math.max(0, Math.trunc(options.attemptOffset ?? 0));
   const baseUrl = buildAmazonUrl(row);
+
+  if (!baseUrl) {
+    return {
+      marketplace: "amazon",
+      ok: false,
+      blocked: false,
+      price: null,
+      currency: "INR",
+      title: "",
+      url: "",
+      notes: "Amazon skipped: no ASIN or Amazon Link was provided.",
+      attempts: 0,
+      completed: true
+    };
+  }
+
   const searchUrl = `https://www.amazon.in/s?k=${encodeURIComponent(buildSearchQuery(row))}`;
 
   for (let localAttempt = 1; localAttempt <= maxAttempts; localAttempt += 1) {
