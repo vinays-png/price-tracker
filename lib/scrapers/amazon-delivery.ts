@@ -5,6 +5,19 @@ import type { DeliveryMarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeAmazonDelivery(row: SourceRow, pincode: string): Promise<DeliveryMarketplaceResult> {
   const baseUrl = buildAmazonUrl(row);
+  if (!baseUrl) {
+    return {
+      marketplace: "amazon",
+      ok: false,
+      blocked: false,
+      attempts: 0,
+      url: "",
+      notes: "Amazon delivery skipped: no ASIN or Amazon Link was provided.",
+      deliveryLabel: "",
+      deliveryDate: ""
+    };
+  }
+
   const targetUrl = baseUrl || `https://www.amazon.in/s?k=${encodeURIComponent(buildSearchQuery(row))}`;
 
   try {

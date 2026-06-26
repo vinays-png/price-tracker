@@ -5,6 +5,19 @@ import type { DeliveryMarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkartDelivery(row: SourceRow, pincode: string): Promise<DeliveryMarketplaceResult> {
   try {
+    if (!row.fsn.trim() && !row.flipkartUrl.trim()) {
+      return {
+        marketplace: "flipkart",
+        ok: false,
+        blocked: false,
+        attempts: 0,
+        url: "",
+        notes: "Flipkart delivery skipped: no FSN or Flipkart Link was provided.",
+        deliveryLabel: "",
+        deliveryDate: ""
+      };
+    }
+
     const identity = await resolveFlipkartIdentity(row);
 
     if (!identity) {
