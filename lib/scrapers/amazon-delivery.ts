@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { fetchAmazonDeliveryHtml } from "@/lib/scrapers/browser";
 import { buildSearchQuery } from "@/lib/search-query";
 import { fetchHtml, looksBlockedDocument, normalizeWhitespace } from "@/lib/scrapers/shared";
 import type { DeliveryMarketplaceResult, SourceRow } from "@/types";
@@ -31,19 +32,22 @@ export async function scrapeAmazonDelivery(row: SourceRow, pincode: string): Pro
       });
     }
 
-    const parsed = baseUrl
+    let parsed = baseUrl
       ? parseAmazonDeliveryPage(response.html)
       : await resolveAmazonSearchResult(response.html);
+
+    if (baseUrl && !parsed.deliveryDate) {
+      const rendered = await fetchAmazonDeliveryHtml(targetUrl, pincode);
+      parsed = parseAmazonDeliveryPage(rendered.html, rendered.text, rendered.forced);
+    }
 
     return {
       marketplace: "amazon",
       ok: Boolean(parsed.deliveryLabel || parsed.deliveryDate),
       blocked: false,
-      attempts: 1,
+      attempts: parsed.forcedPincode ? 2 : parsed.deliveryDate ? 1 : 1,
       url: parsed.url || response.url,
-      notes: parsed.deliveryDate
-        ? `Amazon delivery was read from the product page. Pincode ${pincode} could not be forced anonymously, so this reflects Amazon's current visible delivery location.`
-        : parsed.notes,
+      notes: parsed.notes,
       deliveryLabel: parsed.deliveryLabel,
       deliveryDate: parsed.deliveryDate
     };
@@ -61,7 +65,7 @@ function buildAmazonUrl(row: SourceRow) {
   return "";
 }
 
-function parseAmazonDeliveryPage(html: string) {
+function parseAmazonDeliveryPage(html: string, visibleText = "", forcedPincode = false) {
   const $ = cheerio.load(html);
   const lines = $("#deliveryBlockMessage span, #deliveryBlockMessage div, #mir-layout-DELIVERY_BLOCK span")
     .map((_, element) => normalizeWhitespace($(element).text()))
@@ -75,19 +79,30 @@ function parseAmazonDeliveryPage(html: string) {
     return {
       deliveryLabel: deliveryLine || "Fastest delivery",
       deliveryDate: fastestLine || deliveryLine,
-      notes: "Amazon delivery details captured from the product page.",
+      notes: forcedPincode
+        ? "Amazon delivery details captured after applying the requested pincode."
+        : "Amazon delivery details captured from the product page.",
+      forcedPincode,
       url: ""
     };
   }
 
-  const pageText = normalizeWhitespace($.text());
+  const pageText = normalizeWhitespace(`${visibleText} ${$.text()}`);
   const freeDeliveryMatch = pageText.match(/FREE delivery\s+([^.]*)/i);
   const fastestMatch = pageText.match(/Or fastest delivery\s+([^.]*)/i);
 
   return {
     deliveryLabel: freeDeliveryMatch ? "FREE delivery" : fastestMatch ? "Fastest delivery" : "",
     deliveryDate: normalizeWhitespace((freeDeliveryMatch?.[1] || fastestMatch?.[1] || "").trim()),
-    notes: freeDeliveryMatch || fastestMatch ? "Amazon delivery details captured from the product page." : "Amazon delivery details were not available on the page.",
+    notes:
+      freeDeliveryMatch || fastestMatch
+        ? forcedPincode
+          ? "Amazon delivery details captured after applying the requested pincode."
+          : "Amazon delivery details captured from the product page."
+        : forcedPincode
+          ? "Amazon delivery details were not available after applying the requested pincode."
+          : "Amazon delivery details were not available on the page.",
+    forcedPincode,
     url: ""
   };
 }
@@ -105,6 +120,7 @@ async function resolveAmazonSearchResult(html: string) {
       deliveryLabel: "",
       deliveryDate: "",
       notes: "Amazon search did not return a product link.",
+      forcedPincode: false,
       url: ""
     };
   }
@@ -117,6 +133,7 @@ async function resolveAmazonSearchResult(html: string) {
       deliveryLabel: "",
       deliveryDate: "",
       notes: "Amazon blocked the product page while checking delivery details.",
+      forcedPincode: false,
       url: productUrl
     };
   }
