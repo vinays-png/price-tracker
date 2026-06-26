@@ -20,43 +20,93 @@ type ProgressState = {
   total: number;
 };
 
+type PriceState = {
+  csvText: string;
+  error: string;
+  fileName: string;
+  isLoading: boolean;
+  progress: ProgressState | null;
+  result: CheckPricesResponse | null;
+};
+
+type DeliveryState = {
+  csvText: string;
+  error: string;
+  fileName: string;
+  isLoading: boolean;
+  pincodes: string;
+  progress: ProgressState | null;
+  result: CheckDeliveryResponse | null;
+};
+
+const INITIAL_PRICE_STATE: PriceState = {
+  csvText: "",
+  error: "",
+  fileName: "",
+  isLoading: false,
+  progress: null,
+  result: null
+};
+
+const INITIAL_DELIVERY_STATE: DeliveryState = {
+  csvText: "",
+  error: "",
+  fileName: "",
+  isLoading: false,
+  pincodes: "",
+  progress: null,
+  result: null
+};
+
 export default function HomePage() {
   const [mode, setMode] = useState<Mode>("prices");
-  const [csvText, setCsvText] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [pincodeText, setPincodeText] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [priceResult, setPriceResult] = useState<CheckPricesResponse | null>(null);
-  const [deliveryResult, setDeliveryResult] = useState<CheckDeliveryResponse | null>(null);
-  const [progress, setProgress] = useState<ProgressState | null>(null);
+  const [priceState, setPriceState] = useState<PriceState>(INITIAL_PRICE_STATE);
+  const [deliveryState, setDeliveryState] = useState<DeliveryState>(INITIAL_DELIVERY_STATE);
 
-  async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+  async function onPriceFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const text = await file.text();
-    setCsvText(text);
-    setFileName(file.name);
-    setError("");
-    setPriceResult(null);
-    setDeliveryResult(null);
+    setPriceState((current) => ({
+      ...current,
+      csvText: text,
+      error: "",
+      fileName: file.name,
+      result: null
+    }));
+  }
+
+  async function onDeliveryFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    setDeliveryState((current) => ({
+      ...current,
+      csvText: text,
+      error: "",
+      fileName: file.name,
+      result: null
+    }));
   }
 
   async function runPriceCheck() {
-    if (!csvText.trim()) {
-      setError("Upload a CSV file first.");
+    if (!priceState.csvText.trim()) {
+      setPriceState((current) => ({ ...current, error: "Upload a CSV file first." }));
       return;
     }
 
-    setIsLoading(true);
-    setError("");
-    setPriceResult(null);
-    setDeliveryResult(null);
-    setProgress(null);
+    setPriceState((current) => ({
+      ...current,
+      error: "",
+      isLoading: true,
+      progress: null,
+      result: null
+    }));
 
     try {
-      const selectedRows = getRowsWithSku(csvText);
+      const selectedRows = getRowsWithSku(priceState.csvText);
       const completedRows: RowResult[] = [];
 
       for (let index = 0; index < selectedRows.length; index += 1) {
@@ -65,20 +115,26 @@ export default function HomePage() {
         let rowResult: RowResult | null = null;
         let flipkartResult: RowResult["flipkart"] | null = null;
 
-        setProgress({
-          completed: index,
-          currentLabel: buildRowLabel(row),
-          remaining: selectedRows.length - index,
-          total: selectedRows.length
-        });
-
-        while (true) {
-          setProgress({
+        setPriceState((current) => ({
+          ...current,
+          progress: {
             completed: index,
-            currentLabel: `${buildRowLabel(row)} | Amazon attempt ${amazonAttemptOffset + 1}`,
+            currentLabel: buildRowLabel(row),
             remaining: selectedRows.length - index,
             total: selectedRows.length
-          });
+          }
+        }));
+
+        while (true) {
+          setPriceState((current) => ({
+            ...current,
+            progress: {
+              completed: index,
+              currentLabel: `${buildRowLabel(row)} | Amazon attempt ${amazonAttemptOffset + 1}`,
+              remaining: selectedRows.length - index,
+              total: selectedRows.length
+            }
+          }));
 
           const data = await postJson<CheckPricesResponse>("/api/check-prices", {
             amazonAttemptOffset,
@@ -97,22 +153,26 @@ export default function HomePage() {
             flipkartResult = nextRow.flipkart;
           }
 
-          rowResult = {
+          const mergedRowResult: RowResult = {
             ...nextRow,
             flipkart: flipkartResult ?? nextRow.flipkart
           };
+          rowResult = mergedRowResult;
 
-          setPriceResult({
-            checkedAt: new Date().toISOString(),
-            totalRows: selectedRows.length,
-            rows: [...completedRows, rowResult]
-          });
+          setPriceState((current) => ({
+            ...current,
+            result: {
+              checkedAt: new Date().toISOString(),
+              totalRows: selectedRows.length,
+              rows: [...completedRows, mergedRowResult]
+            }
+          }));
 
-          if (rowResult.amazon.price !== null || rowResult.amazon.completed !== false) {
+          if (mergedRowResult.amazon.price !== null || mergedRowResult.amazon.completed !== false) {
             break;
           }
 
-          amazonAttemptOffset = rowResult.amazon.attempts;
+          amazonAttemptOffset = mergedRowResult.amazon.attempts;
         }
 
         if (!rowResult) {
@@ -120,57 +180,68 @@ export default function HomePage() {
         }
 
         completedRows.push(rowResult);
-        setPriceResult({
-          checkedAt: new Date().toISOString(),
-          totalRows: selectedRows.length,
-          rows: [...completedRows]
-        });
-        setProgress({
-          completed: index + 1,
-          currentLabel: buildRowLabel(row),
-          remaining: selectedRows.length - (index + 1),
-          total: selectedRows.length
-        });
+        setPriceState((current) => ({
+          ...current,
+          progress: {
+            completed: index + 1,
+            currentLabel: buildRowLabel(row),
+            remaining: selectedRows.length - (index + 1),
+            total: selectedRows.length
+          },
+          result: {
+            checkedAt: new Date().toISOString(),
+            totalRows: selectedRows.length,
+            rows: [...completedRows]
+          }
+        }));
       }
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Something went wrong.");
+      setPriceState((current) => ({
+        ...current,
+        error: caughtError instanceof Error ? caughtError.message : "Something went wrong."
+      }));
     } finally {
-      finishLoading();
+      finishPriceLoading();
     }
   }
 
   async function runDeliveryCheck() {
-    if (!csvText.trim()) {
-      setError("Upload a CSV file first.");
+    if (!deliveryState.csvText.trim()) {
+      setDeliveryState((current) => ({ ...current, error: "Upload a CSV file first." }));
       return;
     }
 
-    const pincodes = parsePincodes(pincodeText);
+    const pincodes = parsePincodes(deliveryState.pincodes);
     if (!pincodes.length) {
-      setError("Enter at least one 6-digit pincode.");
+      setDeliveryState((current) => ({ ...current, error: "Enter at least one 6-digit pincode." }));
       return;
     }
 
-    setIsLoading(true);
-    setError("");
-    setPriceResult(null);
-    setDeliveryResult(null);
-    setProgress(null);
+    setDeliveryState((current) => ({
+      ...current,
+      error: "",
+      isLoading: true,
+      progress: null,
+      result: null
+    }));
 
     try {
-      const selectedRows = getRowsWithSku(csvText);
+      const selectedRows = getRowsWithSku(deliveryState.csvText);
       const completedRows: DeliveryRowResult[] = [];
       const totalChecks = selectedRows.length * pincodes.length;
       let completedChecks = 0;
 
       for (const row of selectedRows) {
         for (const pincode of pincodes) {
-          setProgress({
-            completed: completedChecks,
-            currentLabel: `${buildRowLabel(row)} | ${pincode}`,
-            remaining: totalChecks - completedChecks,
-            total: totalChecks
-          });
+          setDeliveryState((current) => ({
+            ...current,
+            progress: {
+              completed: completedChecks,
+              currentLabel: `${buildRowLabel(row)} | ${pincode}`,
+              remaining: totalChecks - completedChecks,
+              total: totalChecks
+            }
+          }));
 
           const data = await postJson<CheckDeliveryResponse>("/api/check-delivery", {
             rows: [row],
@@ -185,76 +256,87 @@ export default function HomePage() {
           completedRows.push(nextRow);
           completedChecks += 1;
 
-          setDeliveryResult({
-            checkedAt: new Date().toISOString(),
-            totalRows: totalChecks,
-            rows: [...completedRows]
-          });
-          setProgress({
-            completed: completedChecks,
-            currentLabel: `${buildRowLabel(row)} | ${pincode}`,
-            remaining: totalChecks - completedChecks,
-            total: totalChecks
-          });
+          setDeliveryState((current) => ({
+            ...current,
+            progress: {
+              completed: completedChecks,
+              currentLabel: `${buildRowLabel(row)} | ${pincode}`,
+              remaining: totalChecks - completedChecks,
+              total: totalChecks
+            },
+            result: {
+              checkedAt: new Date().toISOString(),
+              totalRows: totalChecks,
+              rows: [...completedRows]
+            }
+          }));
         }
       }
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Something went wrong.");
+      setDeliveryState((current) => ({
+        ...current,
+        error: caughtError instanceof Error ? caughtError.message : "Something went wrong."
+      }));
     } finally {
-      finishLoading();
+      finishDeliveryLoading();
     }
   }
 
-  function finishLoading() {
-    setIsLoading(false);
-    setProgress((currentProgress) =>
-      currentProgress
+  function finishPriceLoading() {
+    setPriceState((current) => ({
+      ...current,
+      isLoading: false,
+      progress: current.progress
         ? {
-            ...currentProgress,
+            ...current.progress,
             currentLabel: "",
             remaining: 0
           }
         : null
-    );
+    }));
   }
 
-  function downloadResults() {
-    const rows = mode === "prices" ? buildPriceExportRows(priceResult) : buildDeliveryExportRows(deliveryResult);
-    const fileStem = mode === "prices" ? "marketplace-prices" : "marketplace-delivery";
-
-    if (!rows.length) return;
-
-    const csv = rows
-      .map((line) =>
-        line
-          .map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`)
-          .join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${fileStem}-${Date.now()}.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  function finishDeliveryLoading() {
+    setDeliveryState((current) => ({
+      ...current,
+      isLoading: false,
+      progress: current.progress
+        ? {
+            ...current.progress,
+            currentLabel: "",
+            remaining: 0
+          }
+        : null
+    }));
   }
 
-  const activeResult = mode === "prices" ? priceResult : deliveryResult;
-  const hasResults = Boolean(activeResult && activeResult.rows.length);
-  const progressMessage = progress
-    ? `Completed ${progress.completed} of ${progress.total} | Remaining ${progress.remaining}${
-        progress.currentLabel ? ` | Current ${progress.currentLabel}` : ""
+  function downloadPriceResults() {
+    downloadRows(buildPriceExportRows(priceState.result), "marketplace-prices");
+  }
+
+  function downloadDeliveryResults() {
+    downloadRows(buildDeliveryExportRows(deliveryState.result), "marketplace-delivery");
+  }
+
+  const priceHasResults = Boolean(priceState.result && priceState.result.rows.length);
+  const deliveryHasResults = Boolean(deliveryState.result && deliveryState.result.rows.length);
+  const priceProgressMessage = priceState.progress
+    ? `Completed ${priceState.progress.completed} of ${priceState.progress.total} | Remaining ${priceState.progress.remaining}${
+        priceState.progress.currentLabel ? ` | Current ${priceState.progress.currentLabel}` : ""
+      }`
+    : "";
+  const deliveryProgressMessage = deliveryState.progress
+    ? `Completed ${deliveryState.progress.completed} of ${deliveryState.progress.total} | Remaining ${deliveryState.progress.remaining}${
+        deliveryState.progress.currentLabel ? ` | Current ${deliveryState.progress.currentLabel}` : ""
       }`
     : "";
 
-  const totalAmazonBlocked = priceResult?.rows.filter((row) => row.amazon.blocked).length ?? 0;
-  const totalAmazonSuccess = priceResult?.rows.filter((row) => row.amazon.ok && row.amazon.price !== null).length ?? 0;
-  const totalFlipkartSuccess = priceResult?.rows.filter((row) => row.flipkart.ok && row.flipkart.price !== null).length ?? 0;
-  const totalDeliveryChecks = deliveryResult?.rows.length ?? 0;
-  const totalAmazonDelivery = deliveryResult?.rows.filter((row) => row.amazon.ok && row.amazon.deliveryDate).length ?? 0;
-  const totalFlipkartDelivery = deliveryResult?.rows.filter((row) => row.flipkart.ok && row.flipkart.deliveryDate).length ?? 0;
+  const totalAmazonBlocked = priceState.result?.rows.filter((row) => row.amazon.blocked).length ?? 0;
+  const totalAmazonSuccess = priceState.result?.rows.filter((row) => row.amazon.ok && row.amazon.price !== null).length ?? 0;
+  const totalFlipkartSuccess = priceState.result?.rows.filter((row) => row.flipkart.ok && row.flipkart.price !== null).length ?? 0;
+  const totalDeliveryChecks = deliveryState.result?.rows.length ?? 0;
+  const totalAmazonDelivery = deliveryState.result?.rows.filter((row) => row.amazon.ok && row.amazon.deliveryDate).length ?? 0;
+  const totalFlipkartDelivery = deliveryState.result?.rows.filter((row) => row.flipkart.ok && row.flipkart.deliveryDate).length ?? 0;
 
   return (
     <main className="page-shell">
@@ -269,205 +351,239 @@ export default function HomePage() {
         </div>
         <h1>Marketplace Price Scraper</h1>
         <p>
-          Upload a CSV with <strong>SKU</strong>, <strong>ASIN</strong>, and <strong>FSN</strong> columns. Switch between
-          price checks and delivery-date checks without changing the source file.
+          Upload a CSV with <strong>SKU</strong>, <strong>ASIN</strong>, and <strong>FSN</strong> columns. Each tab keeps
+          its own file, progress, and results so price and delivery jobs can run independently.
         </p>
       </section>
 
       <section className="layout-grid">
-        <aside className="panel controls">
-          <div className="field">
-            <label htmlFor="csvFile">CSV File</label>
-            <input id="csvFile" type="file" accept=".csv,text/csv" onChange={onFileChange} />
-          </div>
-
-          {mode === "delivery" ? (
-            <div className="field">
-              <label htmlFor="pincodes">Pincodes</label>
-              <textarea
-                id="pincodes"
-                className="text-area"
-                placeholder="560103, 110001&#10;Enter one or many pincodes"
-                value={pincodeText}
-                onChange={(event) => setPincodeText(event.target.value)}
-              />
-            </div>
-          ) : null}
-
-          <div className="button-row">
-            <button
-              className="button button-primary"
-              onClick={mode === "prices" ? runPriceCheck : runDeliveryCheck}
-              disabled={isLoading}
-            >
-              {isLoading ? (mode === "prices" ? "Checking prices..." : "Checking delivery...") : mode === "prices" ? "Fetch Prices" : "Fetch Delivery Dates"}
-            </button>
-            <button className="button button-secondary" onClick={downloadResults} disabled={!activeResult}>
-              Export Results CSV
-            </button>
-          </div>
-
-          <p className="note">
-            File: <strong>{fileName || "No CSV selected"}</strong>
-          </p>
-          <p className="note">The app automatically processes every row where SKU details are present.</p>
-          {mode === "prices" ? (
-            <p className="note">
-              Amazon retries continue in small request batches until a price is found, so the app can keep working
-              without hitting Vercel function limits.
-            </p>
-          ) : (
-            <p className="note">
-              Flipkart delivery dates are checked by pincode directly. Amazon delivery is best-effort and may still
-              reflect Amazon&apos;s current visible location when anonymous pincode updates are restricted.
-            </p>
-          )}
-        </aside>
-
-        <section className="panel results">
-          {error ? <p className="status">{error}</p> : null}
-          {progressMessage ? <p className="status">{progressMessage}</p> : null}
-
-          {!hasResults && isLoading ? (
-            <div>
-              <p className="eyebrow">Fetching</p>
-              <p>
-                {mode === "prices"
-                  ? "The app is processing your CSV now. Partial price results will appear as each SKU finishes."
-                  : "The app is checking delivery dates across your SKU rows and pincodes now."}
-              </p>
-            </div>
-          ) : !hasResults ? (
-            <div>
-              <p className="eyebrow">Ready</p>
-              <p>
-                {mode === "prices"
-                  ? "Upload the source CSV and run a fetch. Results will appear here with prices, source URLs, retry counts, and scrape notes."
-                  : "Upload the source CSV, add one or more pincodes, and run a fetch. Results will appear here with delivery dates, source URLs, and scrape notes."}
-              </p>
-            </div>
-          ) : mode === "prices" && priceResult ? (
-            <div>
-              <p className="status">
-                Checked {priceResult.totalRows} rows at {new Date(priceResult.checkedAt).toLocaleString()}.
-              </p>
-
-              <div className="card-grid">
-                <div className="stat-card">
-                  <p className="eyebrow">Amazon Success</p>
-                  <p className="stat-value">{totalAmazonSuccess}</p>
-                </div>
-                <div className="stat-card">
-                  <p className="eyebrow">Flipkart Success</p>
-                  <p className="stat-value">{totalFlipkartSuccess}</p>
-                </div>
-                <div className="stat-card">
-                  <p className="eyebrow">Amazon Blocked</p>
-                  <p className="stat-value">{totalAmazonBlocked}</p>
-                </div>
+        {mode === "prices" ? (
+          <>
+            <aside className="panel controls">
+              <div className="field">
+                <label htmlFor="priceCsvFile">CSV File</label>
+                <input id="priceCsvFile" type="file" accept=".csv,text/csv" onChange={onPriceFileChange} />
               </div>
 
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>ASIN</th>
-                      <th>FSN</th>
-                      <th>Amazon</th>
-                      <th>Flipkart</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {priceResult.rows.map((row) => (
-                      <tr key={`${row.sku}-${row.asin}-${row.fsn}`}>
-                        <td>
-                          <strong>{row.sku || "-"}</strong>
-                          <div className="tiny">{row.title}</div>
-                        </td>
-                        <td>{row.asin || "-"}</td>
-                        <td>{row.fsn || "-"}</td>
-                        <td>
-                          <MarketplaceCell
-                            price={row.amazon.price}
-                            notes={row.amazon.notes}
-                            attempts={row.amazon.attempts}
-                            blocked={row.amazon.blocked}
-                            url={row.amazon.url}
-                          />
-                        </td>
-                        <td>
-                          <MarketplaceCell
-                            price={row.flipkart.price}
-                            notes={row.flipkart.notes}
-                            attempts={row.flipkart.attempts}
-                            blocked={false}
-                            url={row.flipkart.url}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="button-row">
+                <button className="button button-primary" onClick={runPriceCheck} disabled={priceState.isLoading}>
+                  {priceState.isLoading ? "Checking prices..." : "Fetch Prices"}
+                </button>
+                <button className="button button-secondary" onClick={downloadPriceResults} disabled={!priceState.result}>
+                  Export Results CSV
+                </button>
               </div>
-            </div>
-          ) : deliveryResult ? (
-            <div>
-              <p className="status">
-                Checked {deliveryResult.totalRows} delivery combinations at {new Date(deliveryResult.checkedAt).toLocaleString()}.
+
+              <p className="note">
+                File: <strong>{priceState.fileName || "No CSV selected"}</strong>
               </p>
+              <p className="note">The app automatically processes every row where SKU details are present.</p>
+              <p className="note">
+                Amazon retries continue in small request batches until a price is found, so the app can keep working
+                without hitting Vercel function limits.
+              </p>
+            </aside>
 
-              <div className="card-grid">
-                <div className="stat-card">
-                  <p className="eyebrow">Checks Run</p>
-                  <p className="stat-value">{totalDeliveryChecks}</p>
+            <section className="panel results">
+              {priceState.error ? <p className="status">{priceState.error}</p> : null}
+              {priceProgressMessage ? <p className="status">{priceProgressMessage}</p> : null}
+
+              {!priceHasResults && priceState.isLoading ? (
+                <div>
+                  <p className="eyebrow">Fetching</p>
+                  <p>The app is processing your CSV now. Partial price results will appear as each SKU finishes.</p>
                 </div>
-                <div className="stat-card">
-                  <p className="eyebrow">Amazon Delivery</p>
-                  <p className="stat-value">{totalAmazonDelivery}</p>
+              ) : !priceHasResults ? (
+                <div>
+                  <p className="eyebrow">Ready</p>
+                  <p>
+                    Upload the source CSV and run a fetch. Results will appear here with prices, source URLs, retry
+                    counts, and scrape notes.
+                  </p>
                 </div>
-                <div className="stat-card">
-                  <p className="eyebrow">Flipkart Delivery</p>
-                  <p className="stat-value">{totalFlipkartDelivery}</p>
+              ) : (
+                <div>
+                  <p className="status">
+                    Checked {priceState.result!.totalRows} rows at {new Date(priceState.result!.checkedAt).toLocaleString()}.
+                  </p>
+
+                  <div className="card-grid">
+                    <div className="stat-card">
+                      <p className="eyebrow">Amazon Success</p>
+                      <p className="stat-value">{totalAmazonSuccess}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="eyebrow">Flipkart Success</p>
+                      <p className="stat-value">{totalFlipkartSuccess}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="eyebrow">Amazon Blocked</p>
+                      <p className="stat-value">{totalAmazonBlocked}</p>
+                    </div>
+                  </div>
+
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>SKU</th>
+                          <th>ASIN</th>
+                          <th>FSN</th>
+                          <th>Amazon</th>
+                          <th>Flipkart</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {priceState.result!.rows.map((row) => (
+                          <tr key={`${row.sku}-${row.asin}-${row.fsn}`}>
+                            <td>
+                              <strong>{row.sku || "-"}</strong>
+                              <div className="tiny">{row.title}</div>
+                            </td>
+                            <td>{row.asin || "-"}</td>
+                            <td>{row.fsn || "-"}</td>
+                            <td>
+                              <MarketplaceCell
+                                price={row.amazon.price}
+                                notes={row.amazon.notes}
+                                attempts={row.amazon.attempts}
+                                blocked={row.amazon.blocked}
+                                url={row.amazon.url}
+                              />
+                            </td>
+                            <td>
+                              <MarketplaceCell
+                                price={row.flipkart.price}
+                                notes={row.flipkart.notes}
+                                attempts={row.flipkart.attempts}
+                                blocked={false}
+                                url={row.flipkart.url}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+              )}
+            </section>
+          </>
+        ) : (
+          <>
+            <aside className="panel controls">
+              <div className="field">
+                <label htmlFor="deliveryCsvFile">CSV File</label>
+                <input id="deliveryCsvFile" type="file" accept=".csv,text/csv" onChange={onDeliveryFileChange} />
               </div>
 
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>ASIN</th>
-                      <th>FSN</th>
-                      <th>Pincode</th>
-                      <th>Amazon</th>
-                      <th>Flipkart</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deliveryResult.rows.map((row) => (
-                      <tr key={`${row.sku}-${row.asin}-${row.fsn}-${row.pincode}`}>
-                        <td>
-                          <strong>{row.sku || "-"}</strong>
-                          <div className="tiny">{row.title}</div>
-                        </td>
-                        <td>{row.asin || "-"}</td>
-                        <td>{row.fsn || "-"}</td>
-                        <td>{row.pincode}</td>
-                        <td>
-                          <DeliveryCell result={row.amazon} />
-                        </td>
-                        <td>
-                          <DeliveryCell result={row.flipkart} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="field">
+                <label htmlFor="pincodes">Pincodes</label>
+                <textarea
+                  id="pincodes"
+                  className="text-area"
+                  placeholder="560103, 110001&#10;Enter one or many pincodes"
+                  value={deliveryState.pincodes}
+                  onChange={(event) => setDeliveryState((current) => ({ ...current, pincodes: event.target.value }))}
+                />
               </div>
-            </div>
-          ) : null}
-        </section>
+
+              <div className="button-row">
+                <button className="button button-primary" onClick={runDeliveryCheck} disabled={deliveryState.isLoading}>
+                  {deliveryState.isLoading ? "Checking delivery..." : "Fetch Delivery Dates"}
+                </button>
+                <button className="button button-secondary" onClick={downloadDeliveryResults} disabled={!deliveryState.result}>
+                  Export Results CSV
+                </button>
+              </div>
+
+              <p className="note">
+                File: <strong>{deliveryState.fileName || "No CSV selected"}</strong>
+              </p>
+              <p className="note">The app automatically processes every row where SKU details are present.</p>
+              <p className="note">
+                Flipkart delivery dates are checked by pincode directly, and Flipkart product resolution now treats the
+                `pid=` value as the FSN signal when available.
+              </p>
+            </aside>
+
+            <section className="panel results">
+              {deliveryState.error ? <p className="status">{deliveryState.error}</p> : null}
+              {deliveryProgressMessage ? <p className="status">{deliveryProgressMessage}</p> : null}
+
+              {!deliveryHasResults && deliveryState.isLoading ? (
+                <div>
+                  <p className="eyebrow">Fetching</p>
+                  <p>The app is checking delivery dates across your SKU rows and pincodes now.</p>
+                </div>
+              ) : !deliveryHasResults ? (
+                <div>
+                  <p className="eyebrow">Ready</p>
+                  <p>
+                    Upload the source CSV, add one or more pincodes, and run a fetch. Results will appear here with
+                    delivery dates, source URLs, and scrape notes.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="status">
+                    Checked {deliveryState.result!.totalRows} delivery combinations at{" "}
+                    {new Date(deliveryState.result!.checkedAt).toLocaleString()}.
+                  </p>
+
+                  <div className="card-grid">
+                    <div className="stat-card">
+                      <p className="eyebrow">Checks Run</p>
+                      <p className="stat-value">{totalDeliveryChecks}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="eyebrow">Amazon Delivery</p>
+                      <p className="stat-value">{totalAmazonDelivery}</p>
+                    </div>
+                    <div className="stat-card">
+                      <p className="eyebrow">Flipkart Delivery</p>
+                      <p className="stat-value">{totalFlipkartDelivery}</p>
+                    </div>
+                  </div>
+
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>SKU</th>
+                          <th>ASIN</th>
+                          <th>FSN</th>
+                          <th>Pincode</th>
+                          <th>Amazon</th>
+                          <th>Flipkart</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deliveryState.result!.rows.map((row) => (
+                          <tr key={`${row.sku}-${row.asin}-${row.fsn}-${row.pincode}`}>
+                            <td>
+                              <strong>{row.sku || "-"}</strong>
+                              <div className="tiny">{row.title}</div>
+                            </td>
+                            <td>{row.asin || "-"}</td>
+                            <td>{row.fsn || "-"}</td>
+                            <td>{row.pincode}</td>
+                            <td>
+                              <DeliveryCell result={row.amazon} />
+                            </td>
+                            <td>
+                              <DeliveryCell result={row.flipkart} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </section>
     </main>
   );
@@ -511,6 +627,26 @@ function getRowsWithSku(csvText: string) {
   }
 
   return selectedRows;
+}
+
+function downloadRows(rows: Array<Array<string | number>>, fileStem: string) {
+  if (!rows.length) return;
+
+  const csv = rows
+    .map((line) =>
+      line
+        .map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`)
+        .join(",")
+    )
+    .join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${fileStem}-${Date.now()}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function parsePincodes(value: string) {

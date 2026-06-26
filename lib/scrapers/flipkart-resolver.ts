@@ -20,30 +20,45 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
     };
   }
 
+  const fsnIdentity = row.fsn ? await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn) : null;
+  if (fsnIdentity) {
+    return fsnIdentity;
+  }
+
   for (const candidate of buildFlipkartSearchQueries(row)) {
-    const searchUrl = `https://www.flipkart.com/search?q=${encodeURIComponent(candidate.query)}`;
-    const response = await fetchHtml(searchUrl, 1);
-    const $ = cheerio.load(response.html);
-    const firstCard = $('a[href*="/p/"]').first();
-    const href = firstCard.attr("href");
-
-    if (!href) {
-      continue;
-    }
-
-    const productUrl = new URL(href, "https://www.flipkart.com").toString();
-    const identity = parseFlipkartIdentifiers(productUrl);
-
+    const identity = await resolveFromSearchQuery(candidate.query, candidate.label);
     if (identity) {
-      return {
-        ...identity,
-        productUrl,
-        resolvedBy: candidate.label
-      };
+      return identity;
     }
   }
 
   return null;
+}
+
+async function resolveFromSearchQuery(query: string, label: string, preferredPid = "") {
+  const searchUrl = `https://www.flipkart.com/search?q=${encodeURIComponent(query)}`;
+  const response = await fetchHtml(searchUrl, 1);
+  const $ = cheerio.load(response.html);
+  const preferredCard = preferredPid
+    ? $(`a[href*="pid=${preferredPid}"][href*="/p/"]`).first()
+    : null;
+  const firstCard = preferredCard?.length ? preferredCard : $('a[href*="/p/"]').first();
+  const href = firstCard.attr("href");
+
+  if (!href) {
+    return null;
+  }
+
+  const productUrl = new URL(href, "https://www.flipkart.com").toString();
+  const identity = parseFlipkartIdentifiers(productUrl);
+
+  return identity
+    ? {
+        ...identity,
+        productUrl,
+        resolvedBy: label
+      }
+    : null;
 }
 
 function parseFlipkartIdentifiers(url: string) {
