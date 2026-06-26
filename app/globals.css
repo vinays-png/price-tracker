@@ -77,9 +77,9 @@ input {
 
 .hero h1 {
   margin: 0;
-  max-width: 10ch;
-  font-size: clamp(2.8rem, 8vw, 5.8rem);
-  line-height: 0.92;
+  max-width: 14ch;
+  font-size: clamp(2.3rem, 5.8vw, 4.2rem);
+  line-height: 0.96;
   letter-spacing: -0.05em;
 }
 

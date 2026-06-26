@@ -164,8 +164,7 @@ export default function HomePage() {
   return (
     <main className="page-shell">
       <section className="hero">
-        <p className="eyebrow">Vercel-ready scraper</p>
-        <h1>Marketplace Price Radar</h1>
+        <h1>Marketplace Price Scraper</h1>
         <p>
           Upload a CSV with <strong>SKU</strong>, <strong>ASIN</strong>, and <strong>FSN</strong> columns.
           The app will fetch Amazon and Flipkart prices, retry Amazon automatically when a block page is detected,

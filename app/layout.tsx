@@ -14,7 +14,7 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Marketplace Price Radar",
+  title: "Marketplace Price Scraper",
   description: "Upload a CSV and fetch Amazon and Flipkart prices by SKU, ASIN, and FSN."
 };
 
