@@ -116,6 +116,21 @@ function parseFlipkartIdentifiers(url: string) {
 }
 
 function extractLidFromText(value: string) {
-  const match = value.match(/[?&]lid=([A-Z0-9]+)/i);
-  return normalizeWhitespace(match?.[1] || "");
+  const patterns = [
+    /[?&]lid=([A-Z0-9]+)/i,
+    /["']lid["']\s*[:=]\s*["']([A-Z0-9]+)["']/i,
+    /\blid\b\s*[:=]\s*([A-Z0-9]+)/i,
+    /"listing_id":"([A-Z0-9]+)"/i,
+    /"lid":"([A-Z0-9]+)"/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    const lid = normalizeWhitespace(match?.[1] || "");
+    if (lid) {
+      return lid;
+    }
+  }
+
+  return "";
 }
