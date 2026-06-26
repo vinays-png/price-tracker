@@ -22,6 +22,24 @@ export async function scrapeAmazonDelivery(row: SourceRow, pincode: string): Pro
   const targetUrl = baseUrl || `https://www.amazon.in/s?k=${encodeURIComponent(buildSearchQuery(row))}`;
 
   try {
+    if (baseUrl) {
+      const rendered = await fetchAmazonDeliveryHtml(targetUrl, pincode);
+      const renderedParsed = parseAmazonDeliveryPage(rendered.html, rendered.text, rendered.forced);
+
+      if (renderedParsed.deliveryDate) {
+        return {
+          marketplace: "amazon",
+          ok: true,
+          blocked: false,
+          attempts: 1,
+          url: targetUrl,
+          notes: renderedParsed.notes,
+          deliveryLabel: renderedParsed.deliveryLabel,
+          deliveryDate: renderedParsed.deliveryDate
+        };
+      }
+    }
+
     const response = await fetchHtml(targetUrl, 1);
 
     if (response.status >= 400 || looksBlockedDocument(response.html)) {
@@ -32,20 +50,15 @@ export async function scrapeAmazonDelivery(row: SourceRow, pincode: string): Pro
       });
     }
 
-    let parsed = baseUrl
+    const parsed = baseUrl
       ? parseAmazonDeliveryPage(response.html)
       : await resolveAmazonSearchResult(response.html);
-
-    if (baseUrl && !parsed.deliveryDate) {
-      const rendered = await fetchAmazonDeliveryHtml(targetUrl, pincode);
-      parsed = parseAmazonDeliveryPage(rendered.html, rendered.text, rendered.forced);
-    }
 
     return {
       marketplace: "amazon",
       ok: Boolean(parsed.deliveryLabel || parsed.deliveryDate),
       blocked: false,
-      attempts: parsed.forcedPincode ? 2 : parsed.deliveryDate ? 1 : 1,
+      attempts: 1,
       url: parsed.url || response.url,
       notes: parsed.notes,
       deliveryLabel: parsed.deliveryLabel,
@@ -81,7 +94,7 @@ function parseAmazonDeliveryPage(html: string, visibleText = "", forcedPincode =
       deliveryDate: fastestLine || deliveryLine,
       notes: forcedPincode
         ? "Amazon delivery details captured after applying the requested pincode."
-        : "Amazon delivery details captured from the product page.",
+        : "Amazon delivery details captured from the product page. Amazon did not confirm that the requested pincode was applied.",
       forcedPincode,
       url: ""
     };
@@ -98,7 +111,7 @@ function parseAmazonDeliveryPage(html: string, visibleText = "", forcedPincode =
       freeDeliveryMatch || fastestMatch
         ? forcedPincode
           ? "Amazon delivery details captured after applying the requested pincode."
-          : "Amazon delivery details captured from the product page."
+          : "Amazon delivery details captured from the product page. Amazon did not confirm that the requested pincode was applied."
         : forcedPincode
           ? "Amazon delivery details were not available after applying the requested pincode."
           : "Amazon delivery details were not available on the page.",
