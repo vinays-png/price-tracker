@@ -34,8 +34,12 @@ function normalizeRow(row: RawRow): SourceRow {
     fsn: firstValue(row, ["FSN", "Fsn"]),
     title: firstValue(row, ["Product Name", "Title", "Name", "Item Name"]),
     searchQuery: firstValue(row, ["Search Query", "Search", "Query", "Keyword"]),
-    amazonUrl: normalizeUrl(firstValue(row, ["Amazon URL", "Amazon Link", "Amazon Product URL", "Amazon"])),
-    flipkartUrl: normalizeUrl(firstValue(row, ["Flipkart URL", "Flipkart Link", "Flipkart Product URL", "Flipkart"]))
+    amazonUrl: normalizeUrl(firstValue(row, ["Amazon URL", "Amazon Link", "Amazon Product URL", "Amazon"]), [
+      "amazon."
+    ]),
+    flipkartUrl: normalizeUrl(firstValue(row, ["Flipkart URL", "Flipkart Link", "Flipkart Product URL", "Flipkart"]), [
+      "flipkart.com"
+    ])
   };
 }
 
@@ -47,10 +51,28 @@ function firstValue(row: RawRow, keys: string[]) {
   return "";
 }
 
-function normalizeUrl(value: string) {
+function normalizeUrl(value: string, allowedHosts: string[] = []) {
   if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
-  return `https://${value.replace(/^\/+/, "")}`;
+  const trimmed = value.trim();
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return matchesAllowedHost(trimmed, allowedHosts) ? trimmed : "";
+  }
+
+  const normalized = `https://${trimmed.replace(/^\/+/, "")}`;
+  return matchesAllowedHost(normalized, allowedHosts) ? normalized : "";
+}
+
+function matchesAllowedHost(value: string, allowedHosts: string[]) {
+  if (!allowedHosts.length) return true;
+
+  try {
+    const parsedUrl = new URL(value);
+    const hostname = parsedUrl.hostname.toLowerCase();
+    return allowedHosts.some((host) => hostname.includes(host));
+  } catch {
+    return false;
+  }
 }
 
 function cleanText(value: string | undefined) {

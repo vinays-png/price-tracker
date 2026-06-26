@@ -6,6 +6,23 @@ import type { MarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult> {
   try {
+    if (isDirectFlipkartUrl(row.flipkartUrl)) {
+      const response = await fetchHtml(row.flipkartUrl, 1);
+      const parsed = parseFlipkartProductPage(response.html, response.url);
+
+      return {
+        marketplace: "flipkart",
+        ok: Boolean(parsed.price || parsed.title),
+        blocked: false,
+        price: parsed.price,
+        currency: "INR",
+        title: parsed.title,
+        url: parsed.url || response.url,
+        notes: parsed.price !== null ? "Price captured from provided Flipkart link." : parsed.notes,
+        attempts: 1
+      };
+    }
+
     const identity = await resolveFlipkartIdentity(row);
 
     if (identity) {
@@ -52,6 +69,17 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       notes: error instanceof Error ? error.message : "Flipkart request failed.",
       attempts: 1
     };
+  }
+}
+
+function isDirectFlipkartUrl(url: string) {
+  if (!url) return false;
+
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname.toLowerCase().includes("flipkart.com");
+  } catch {
+    return false;
   }
 }
 
