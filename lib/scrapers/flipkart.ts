@@ -1,16 +1,33 @@
 import * as cheerio from "cheerio";
 import { buildSearchQuery } from "@/lib/search-query";
+import { resolveFlipkartIdentity } from "@/lib/scrapers/flipkart-resolver";
 import { extractPrice, fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
 import type { MarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult> {
-  const initialUrl = row.flipkartUrl || `https://www.flipkart.com/search?q=${encodeURIComponent(buildSearchQuery(row))}`;
-
   try {
+    const identity = await resolveFlipkartIdentity(row);
+
+    if (identity) {
+      const response = await fetchHtml(identity.productUrl, 1);
+      const parsed = parseFlipkartProductPage(response.html, response.url);
+
+      return {
+        marketplace: "flipkart",
+        ok: Boolean(parsed.price || parsed.title),
+        blocked: false,
+        price: parsed.price,
+        currency: "INR",
+        title: parsed.title,
+        url: parsed.url || response.url,
+        notes: parsed.price !== null ? parsed.notes : `${parsed.notes} Product was resolved using ${identity.resolvedBy}.`,
+        attempts: 1
+      };
+    }
+
+    const initialUrl = `https://www.flipkart.com/search?q=${encodeURIComponent(buildSearchQuery(row))}`;
     const response = await fetchHtml(initialUrl, 1);
-    const parsed = row.flipkartUrl
-      ? parseFlipkartProductPage(response.html, response.url)
-      : await resolveFlipkartSearchResult(response.html);
+    const parsed = await resolveFlipkartSearchResult(response.html);
 
     return {
       marketplace: "flipkart",
