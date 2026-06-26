@@ -35,3 +35,30 @@ export type CheckPricesResponse = {
   totalRows: number;
   rows: RowResult[];
 };
+
+export type DeliveryMarketplaceResult = {
+  marketplace: "amazon" | "flipkart";
+  ok: boolean;
+  blocked: boolean;
+  attempts: number;
+  url: string;
+  notes: string;
+  deliveryLabel: string;
+  deliveryDate: string;
+};
+
+export type DeliveryRowResult = {
+  sku: string;
+  asin: string;
+  fsn: string;
+  title: string;
+  pincode: string;
+  amazon: DeliveryMarketplaceResult;
+  flipkart: DeliveryMarketplaceResult;
+};
+
+export type CheckDeliveryResponse = {
+  checkedAt: string;
+  totalRows: number;
+  rows: DeliveryRowResult[];
+};

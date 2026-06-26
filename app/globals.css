@@ -34,7 +34,8 @@ a {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -52,6 +53,27 @@ input {
   box-shadow: var(--shadow);
 }
 
+.nav-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.nav-pill {
+  border: 1px solid rgba(35, 29, 24, 0.12);
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.nav-pill-active {
+  color: #fffaf5;
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
 .eyebrow {
   margin: 0 0 10px;
   font-family: var(--font-kepler);
@@ -64,7 +86,7 @@ input {
 .hero h1 {
   margin: 0;
   max-width: 16ch;
-  font-size: clamp(2.2rem, 5vw, 3.8rem);
+  font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1;
   letter-spacing: -0.03em;
   font-weight: 500;
@@ -122,6 +144,16 @@ input {
   border: 1px solid rgba(35, 29, 24, 0.14);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
+}
+
+.text-area {
+  width: 100%;
+  min-height: 120px;
+  padding: 13px 14px;
+  border: 1px solid rgba(35, 29, 24, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  resize: vertical;
 }
 
 .button-row {
