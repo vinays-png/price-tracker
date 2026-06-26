@@ -15,6 +15,8 @@ const VIEWPORT = {
   isLandscape: true,
   isMobile: false
 } as const;
+const REMOTE_CHROMIUM_PACK_URL =
+  "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 
 export async function fetchRenderedHtml(url: string) {
   const browser = await getBrowser();
@@ -78,6 +80,7 @@ async function getBrowser() {
 
 async function launchBrowser() {
   chromium.setGraphicsMode = false;
+  const executablePath = await resolveChromiumExecutablePath();
 
   return puppeteer.launch({
     args: await puppeteer.defaultArgs({
@@ -85,7 +88,20 @@ async function launchBrowser() {
       headless: "shell"
     }),
     defaultViewport: VIEWPORT,
-    executablePath: await chromium.executablePath(),
+    executablePath,
     headless: "shell"
   });
+}
+
+async function resolveChromiumExecutablePath() {
+  try {
+    return await chromium.executablePath();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.includes('The input directory "') || !message.includes("@sparticuz/chromium/bin")) {
+      throw error;
+    }
+
+    return chromium.executablePath(REMOTE_CHROMIUM_PACK_URL);
+  }
 }
