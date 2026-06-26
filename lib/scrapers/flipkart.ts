@@ -40,26 +40,36 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
 
 function parseFlipkartProductPage(html: string, url: string) {
   const $ = cheerio.load(html);
+  const structured = extractFlipkartStructuredProduct($);
   const title = normalizeWhitespace(
-    $("span.B_NuCI").first().text() || $("title").text() || ""
-  );
-  const priceText = normalizeWhitespace(
-    $("div.Nx9bqj.CxhGGd").first().text() ||
-      $("div._30jeq3").first().text() ||
+    structured.title ||
+      $("span.B_NuCI").first().text() ||
+      $("h1").first().text() ||
+      $('meta[property="og:title"]').attr("content") ||
+      $("title").text() ||
       ""
   );
+  const priceText = normalizeWhitespace(
+    $('meta[property="product:price:amount"]').attr("content") ||
+      $("div.Nx9bqj.CxhGGd").first().text() ||
+      $("div._30jeq3").first().text() ||
+      $('div[class*="Nx9bqj"]').first().text() ||
+      ""
+  );
+  const price = structured.price ?? extractPrice(priceText);
 
   return {
     title,
-    price: extractPrice(priceText),
-    notes: priceText ? "Price captured from Flipkart product page." : "Flipkart page loaded but visible price was not found.",
+    price,
+    notes: price !== null ? "Price captured from Flipkart product page." : "Flipkart page loaded but visible price was not found.",
     url
   };
 }
 
 async function resolveFlipkartSearchResult(html: string) {
   const $ = cheerio.load(html);
-  const firstLink = $('a[href*="/p/"]').first().attr("href");
+  const firstCard = $('a[href*="/p/"]').first();
+  const firstLink = firstCard.attr("href");
 
   if (!firstLink) {
     return {
@@ -71,6 +81,68 @@ async function resolveFlipkartSearchResult(html: string) {
   }
 
   const productUrl = new URL(firstLink, "https://www.flipkart.com").toString();
+  const priceText = normalizeWhitespace(firstCard.text().match(/₹[d,]+(?:.d+)?/)?.[0] || "");
+  const title = normalizeWhitespace(
+    firstCard.find("img").attr("alt") ||
+      firstCard.clone().children().remove().end().text() ||
+      ""
+  );
+
+  if (priceText || title) {
+    return {
+      title,
+      price: extractPrice(priceText),
+      notes: "Price captured from Flipkart search results.",
+      url: productUrl
+    };
+  }
+
   const response = await fetchHtml(productUrl, 1);
   return parseFlipkartProductPage(response.html, response.url);
+}
+
+function extractFlipkartStructuredProduct($: cheerio.CheerioAPI) {
+  const scripts = $('script[type="application/ld+json"]')
+    .map((_, element) => $(element).contents().text())
+    .get();
+
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script) as unknown;
+      const products = Array.isArray(parsed) ? parsed : [parsed];
+
+      for (const entry of products) {
+        if (!entry || typeof entry !== "object") continue;
+
+        const record = entry as {
+          "@type"?: string;
+          name?: string;
+          offers?: { price?: number | string } | Array<{ price?: number | string }>;
+        };
+
+        if (record["@type"] !== "Product") continue;
+
+        const offers = Array.isArray(record.offers) ? record.offers[0] : record.offers;
+        const rawPrice = offers?.price;
+        const price =
+          typeof rawPrice === "number"
+            ? rawPrice
+            : typeof rawPrice === "string"
+              ? extractPrice(rawPrice)
+              : null;
+
+        return {
+          title: normalizeWhitespace(record.name || ""),
+          price
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return {
+    title: "",
+    price: null as number | null
+  };
 }
