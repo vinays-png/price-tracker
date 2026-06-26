@@ -3,7 +3,8 @@ import { scrapeAmazonDelivery } from "@/lib/scrapers/amazon-delivery";
 import { scrapeFlipkartDelivery } from "@/lib/scrapers/flipkart-delivery";
 import type { CheckDeliveryResponse, DeliveryRowResult, SourceRow } from "@/types";
 
-export const maxDuration = 60;
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { fetchRenderedHtml } from "@/lib/scrapers/browser";
 import { resolveFlipkartIdentity } from "@/lib/scrapers/flipkart-resolver";
 import { fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
 import type { DeliveryMarketplaceResult, SourceRow } from "@/types";
@@ -29,13 +30,18 @@ export async function scrapeFlipkartDelivery(row: SourceRow, pincode: string): P
       `&pin=${encodeURIComponent(pincode)}&lid=${encodeURIComponent(identity.lid)}&pid=${encodeURIComponent(identity.pid)}`;
 
     const response = await fetchHtml(deliveryUrl, 1);
-    const parsed = parseFlipkartDeliveryResponse(response.html);
+    let parsed = parseFlipkartDeliveryResponse(response.html);
+
+    if (!parsed.deliveryDate) {
+      const rendered = await fetchRenderedHtml(deliveryUrl);
+      parsed = parseFlipkartDeliveryResponse(rendered.html, rendered.text, true);
+    }
 
     return {
       marketplace: "flipkart",
       ok: Boolean(parsed.deliveryLabel || parsed.deliveryDate),
       blocked: false,
-      attempts: 1,
+      attempts: parsed.rendered ? 2 : 1,
       url: deliveryUrl,
       notes: `${parsed.notes} Product was resolved using ${identity.resolvedBy}.`,
       deliveryLabel: parsed.deliveryLabel,
@@ -46,37 +52,42 @@ export async function scrapeFlipkartDelivery(row: SourceRow, pincode: string): P
   }
 }
 
-function parseFlipkartDeliveryResponse(html: string) {
+function parseFlipkartDeliveryResponse(html: string, visibleText = "", rendered = false) {
   const $ = cheerio.load(html);
-  const listItems = $("li, ._1uR9yB, .hVvnXm, .Y8v7Fl")
+  const listItems = $("li, ._1uR9yB, .hVvnXm, .Y8v7Fl, .GoTUA_, .arXFwC, .SJ01Bd")
     .map((_, element) => normalizeWhitespace($(element).text()))
     .get()
     .filter(Boolean);
 
-  const pageText = normalizeWhitespace($.text());
+  const pageText = normalizeWhitespace(`${visibleText} ${$.text()}`);
   const deliveryByIndex = listItems.findIndex((item) => item.toLowerCase().includes("delivery by"));
 
   if (deliveryByIndex >= 0) {
     return {
       deliveryLabel: listItems[deliveryByIndex] || "",
       deliveryDate: listItems[deliveryByIndex + 1] || "",
-      notes: "Delivery details captured from Flipkart."
+      notes: rendered ? "Delivery details captured from rendered Flipkart page." : "Delivery details captured from Flipkart.",
+      rendered
     };
   }
 
-  const deliveryMatch = pageText.match(/Delivery by\s+([A-Za-z0-9,\s]+)/i);
-  if (deliveryMatch) {
+  const labeledMatch = pageText.match(/Delivery by\s+([A-Za-z0-9,\s-]+?)(?=\s+(?:Installation|Shipping Policy|Cash on Delivery|\*)|$)/i);
+  if (labeledMatch) {
     return {
       deliveryLabel: "Delivery by",
-      deliveryDate: normalizeWhitespace(deliveryMatch[1] || ""),
-      notes: "Delivery details captured from Flipkart."
+      deliveryDate: normalizeWhitespace(labeledMatch[1] || ""),
+      notes: rendered ? "Delivery details captured from rendered Flipkart page." : "Delivery details captured from Flipkart.",
+      rendered
     };
   }
 
   return {
     deliveryLabel: "",
     deliveryDate: "",
-    notes: "Flipkart delivery details were not available for this pincode."
+    notes: rendered
+      ? "Flipkart delivery details were not available even after rendering the delivery page."
+      : "Flipkart delivery details were not available for this pincode.",
+    rendered
   };
 }
 
