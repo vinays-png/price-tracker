@@ -23,6 +23,20 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       };
     }
 
+    if (row.flipkartUrl.trim()) {
+      return {
+        marketplace: "flipkart",
+        ok: false,
+        blocked: false,
+        price: null,
+        currency: "INR",
+        title: "",
+        url: "",
+        notes: "Flipkart Link was provided but is not a valid Flipkart product URL.",
+        attempts: 1
+      };
+    }
+
     const identity = await resolveFlipkartIdentity(row);
 
     if (identity) {

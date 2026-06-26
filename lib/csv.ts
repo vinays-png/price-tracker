@@ -28,18 +28,17 @@ export function parseCsvToRows(csvText: string): SourceRow[] {
 }
 
 function normalizeRow(row: RawRow): SourceRow {
+  const rawAmazonLink = firstValue(row, ["Amazon URL", "Amazon Link", "Amazon Product URL", "Amazon"]);
+  const rawFlipkartLink = firstValue(row, ["Flipkart URL", "Flipkart Link", "Flipkart Product URL", "Flipkart"]);
+
   return {
     sku: firstValue(row, ["SKU", "SKU Id", "Sku", "sku", "Seller SKU", "Product SKU"]),
     asin: firstValue(row, ["Amazon ASIN", "ASIN", "Asin"]),
     fsn: firstValue(row, ["FSN", "Fsn"]),
     title: firstValue(row, ["Product Name", "Title", "Name", "Item Name"]),
     searchQuery: firstValue(row, ["Search Query", "Search", "Query", "Keyword"]),
-    amazonUrl: normalizeUrl(firstValue(row, ["Amazon URL", "Amazon Link", "Amazon Product URL", "Amazon"]), [
-      "amazon."
-    ]),
-    flipkartUrl: normalizeUrl(firstValue(row, ["Flipkart URL", "Flipkart Link", "Flipkart Product URL", "Flipkart"]), [
-      "flipkart.com"
-    ])
+    amazonUrl: normalizeUrl(rawAmazonLink, ["amazon."]),
+    flipkartUrl: normalizeFlipkartValue(rawFlipkartLink)
   };
 }
 
@@ -61,6 +60,12 @@ function normalizeUrl(value: string, allowedHosts: string[] = []) {
 
   const normalized = `https://${trimmed.replace(/^\/+/, "")}`;
   return matchesAllowedHost(normalized, allowedHosts) ? normalized : "";
+}
+
+function normalizeFlipkartValue(value: string) {
+  const normalizedUrl = normalizeUrl(value, ["flipkart.com"]);
+  if (normalizedUrl) return normalizedUrl;
+  return value.trim();
 }
 
 function matchesAllowedHost(value: string, allowedHosts: string[]) {
