@@ -15,7 +15,16 @@ export function parseCsvToRows(csvText: string): SourceRow[] {
 
   return parsed.data
     .map(normalizeRow)
-    .filter((row) => row.sku || row.asin || row.fsn || row.searchQuery || row.title);
+    .filter(
+      (row) =>
+        row.sku ||
+        row.asin ||
+        row.fsn ||
+        row.searchQuery ||
+        row.title ||
+        row.amazonUrl ||
+        row.flipkartUrl
+    );
 }
 
 function normalizeRow(row: RawRow): SourceRow {

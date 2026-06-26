@@ -64,7 +64,18 @@ export async function POST(request: Request) {
 
 function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
   if (Array.isArray(rows) && rows.length) {
-    return rows.map(normalizeIncomingRow).filter((row) => row.sku || row.asin || row.fsn || row.title || row.searchQuery);
+    return rows
+      .map(normalizeIncomingRow)
+      .filter(
+        (row) =>
+          row.sku ||
+          row.asin ||
+          row.fsn ||
+          row.title ||
+          row.searchQuery ||
+          row.amazonUrl ||
+          row.flipkartUrl
+      );
   }
 
   if (!csvText.trim()) {

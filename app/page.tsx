@@ -106,7 +106,7 @@ export default function HomePage() {
     }));
 
     try {
-      const selectedRows = getRowsWithSku(priceState.csvText);
+      const selectedRows = getProcessableRows(priceState.csvText);
       const completedRows: RowResult[] = [];
 
       for (let index = 0; index < selectedRows.length; index += 1) {
@@ -226,7 +226,7 @@ export default function HomePage() {
     }));
 
     try {
-      const selectedRows = getRowsWithSku(deliveryState.csvText);
+      const selectedRows = getProcessableRows(deliveryState.csvText);
       const completedRows: DeliveryRowResult[] = [];
       const totalChecks = selectedRows.length * pincodes.length;
       let completedChecks = 0;
@@ -351,8 +351,9 @@ export default function HomePage() {
         </div>
         <h1>Marketplace Price Scraper</h1>
         <p>
-          Upload a CSV with <strong>SKU</strong>, <strong>ASIN</strong>, and <strong>FSN</strong> columns. Each tab keeps
-          its own file, progress, and results so price and delivery jobs can run independently.
+          Upload a CSV with <strong>SKU Id</strong>, <strong>FSN</strong>, <strong>Flipkart Link</strong>,{" "}
+          <strong>ASIN</strong>, and <strong>Amazon Link</strong>. Each tab keeps its own file, progress, and
+          results so price and delivery jobs can run independently.
         </p>
       </section>
 
@@ -377,7 +378,10 @@ export default function HomePage() {
               <p className="note">
                 File: <strong>{priceState.fileName || "No CSV selected"}</strong>
               </p>
-              <p className="note">The app automatically processes every row where SKU details are present.</p>
+              <p className="note">
+                The app automatically processes every row that has a SKU, marketplace ID, title, or direct product
+                link.
+              </p>
               <p className="note">
                 Amazon retries continue in small request batches until a price is found, so the app can keep working
                 without hitting Vercel function limits.
@@ -500,7 +504,10 @@ export default function HomePage() {
               <p className="note">
                 File: <strong>{deliveryState.fileName || "No CSV selected"}</strong>
               </p>
-              <p className="note">The app automatically processes every row where SKU details are present.</p>
+              <p className="note">
+                The app automatically processes every row that has a SKU, marketplace ID, title, or direct product
+                link.
+              </p>
               <p className="note">
                 Flipkart delivery dates are checked by pincode directly, and Flipkart product resolution now treats the
                 `pid=` value as the FSN signal when available.
@@ -618,12 +625,21 @@ async function postJson<T>(url: string, body: unknown) {
   return data as T;
 }
 
-function getRowsWithSku(csvText: string) {
+function getProcessableRows(csvText: string) {
   const parsedRows = parseCsvToRows(csvText);
-  const selectedRows = parsedRows.filter((row) => Boolean(row.sku.trim()));
+  const selectedRows = parsedRows.filter(
+    (row) =>
+      Boolean(row.sku.trim()) ||
+      Boolean(row.asin.trim()) ||
+      Boolean(row.fsn.trim()) ||
+      Boolean(row.title.trim()) ||
+      Boolean(row.searchQuery.trim()) ||
+      Boolean(row.amazonUrl.trim()) ||
+      Boolean(row.flipkartUrl.trim())
+  );
 
   if (!selectedRows.length) {
-    throw new Error("No rows with SKU details were found in the CSV.");
+    throw new Error("No usable rows with SKU details, marketplace IDs, titles, or links were found in the CSV.");
   }
 
   return selectedRows;
