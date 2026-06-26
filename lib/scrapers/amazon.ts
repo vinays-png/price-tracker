@@ -159,7 +159,7 @@ async function tryAmazonSearchFallback(searchUrl: string, attempt: number) {
   return resolveAmazonSearchResult(response.html, attempt);
 }
 
-function extractAmazonVisiblePrice(scope: cheerio.CheerioAPI | cheerio.Cheerio<cheerio.Element>) {
+function extractAmazonVisiblePrice(scope: cheerio.CheerioAPI | cheerio.Cheerio<any>) {
   const priceCandidates = [
     getScopedText(scope, 'meta[property="product:price:amount"]'),
     getScopedText(scope, ".a-price .a-offscreen"),
@@ -172,7 +172,7 @@ function extractAmazonVisiblePrice(scope: cheerio.CheerioAPI | cheerio.Cheerio<c
   return normalizeWhitespace(priceCandidates.find(Boolean) || "");
 }
 
-function getScopedText(scope: cheerio.CheerioAPI | cheerio.Cheerio<cheerio.Element>, selector: string) {
+function getScopedText(scope: cheerio.CheerioAPI | cheerio.Cheerio<any>, selector: string) {
   if (typeof scope === "function") {
     const content = scope(selector).first().attr("content");
     return content || scope(selector).first().text();
