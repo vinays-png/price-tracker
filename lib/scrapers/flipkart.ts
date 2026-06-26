@@ -81,7 +81,7 @@ async function resolveFlipkartSearchResult(html: string) {
   }
 
   const productUrl = new URL(firstLink, "https://www.flipkart.com").toString();
-  const priceText = normalizeWhitespace(firstCard.text().match(/₹[d,]+(?:.d+)?/)?.[0] || "");
+  const priceText = normalizeWhitespace(firstCard.text().match(/\u20B9[\d,]+(?:\.\d+)?/)?.[0] || "");
   const title = normalizeWhitespace(
     firstCard.find("img").attr("alt") ||
       firstCard.clone().children().remove().end().text() ||
