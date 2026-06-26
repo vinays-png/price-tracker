@@ -16,7 +16,7 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
 
       if (response.status >= 400 || looksBlockedDocument(response.html)) {
         const fallback = baseUrl ? await tryAmazonSearchFallback(searchUrl, attempt) : null;
-        if (fallback?.price !== null || fallback?.title) {
+        if (fallback && (fallback.price !== null || fallback.title)) {
           return toMarketplaceResult(fallback, attempt);
         }
 
@@ -39,7 +39,7 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
 
       if (baseUrl && !parsed.blocked && parsed.price === null) {
         const fallback = await tryAmazonSearchFallback(searchUrl, attempt);
-        if (fallback?.price !== null || fallback?.title) {
+        if (fallback && (fallback.price !== null || fallback.title)) {
           parsed = fallback;
         }
       }
