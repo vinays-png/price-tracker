@@ -53,6 +53,9 @@ export default function HomePage() {
 
       for (let index = 0; index < selectedRows.length; index += 1) {
         const row = selectedRows[index];
+        let amazonAttemptOffset = 0;
+        let rowResult: RowResult | null = null;
+        let flipkartResult: RowResult["flipkart"] | null = null;
 
         setProgress({
           completed: index,
@@ -61,17 +64,54 @@ export default function HomePage() {
           total: selectedRows.length
         });
 
-        const data = await postJson<CheckPricesResponse>("/api/check-prices", {
-          limit: 1,
-          rows: [row]
-        });
+        while (true) {
+          setProgress({
+            completed: index,
+            currentLabel: `${buildRowLabel(row)} | Amazon attempt ${amazonAttemptOffset + 1}`,
+            remaining: selectedRows.length - index,
+            total: selectedRows.length
+          });
 
-        const nextRow = data.rows[0];
-        if (!nextRow) {
-          throw new Error("The server returned no row result.");
+          const data = await postJson<CheckPricesResponse>("/api/check-prices", {
+            amazonAttemptOffset,
+            amazonMaxAttempts: 2,
+            includeFlipkart: amazonAttemptOffset === 0,
+            limit: 1,
+            rows: [row]
+          });
+
+          const nextRow = data.rows[0];
+          if (!nextRow) {
+            throw new Error("The server returned no row result.");
+          }
+
+          if (!flipkartResult && nextRow.flipkart.attempts > 0) {
+            flipkartResult = nextRow.flipkart;
+          }
+
+          rowResult = {
+            ...nextRow,
+            flipkart: flipkartResult ?? nextRow.flipkart
+          };
+
+          setResult({
+            checkedAt: new Date().toISOString(),
+            totalRows: selectedRows.length,
+            rows: [...completedRows, rowResult]
+          });
+
+          if (rowResult.amazon.price !== null || rowResult.amazon.completed !== false) {
+            break;
+          }
+
+          amazonAttemptOffset = rowResult.amazon.attempts;
         }
 
-        completedRows.push(nextRow);
+        if (!rowResult) {
+          throw new Error("The server did not produce a row result.");
+        }
+
+        completedRows.push(rowResult);
 
         setResult({
           checkedAt: new Date().toISOString(),
@@ -193,8 +233,8 @@ export default function HomePage() {
           </p>
           <p className="note">The app will automatically fetch prices for every row that has a SKU value.</p>
           <p className="note">
-            Amazon retries are bounded to avoid serverless timeouts. Increase `AMAZON_MAX_ATTEMPTS` in Vercel if you
-            want more retries.
+            Amazon retries continue in small request batches until a price is found, so the app can keep working
+            without hitting Vercel function limits.
           </p>
         </aside>
 
@@ -330,7 +370,7 @@ function MarketplaceCell(props: {
   return (
     <div className="market-card">
       <div className={`tag ${props.blocked ? "tag-warn" : "tag-ok"}`}>
-        {props.blocked ? "Blocked" : "Checked"} | {props.attempts} attempt{props.attempts === 1 ? "" : "s"}
+        {props.blocked ? "Retrying" : "Checked"} | {props.attempts} attempt{props.attempts === 1 ? "" : "s"}
       </div>
       <h3>{props.price === null ? "Price not found" : formatPrice(props.price)}</h3>
       <p className="tiny">{props.notes}</p>

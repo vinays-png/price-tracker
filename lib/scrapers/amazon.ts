@@ -3,12 +3,19 @@ import { buildSearchQuery } from "@/lib/search-query";
 import { extractPrice, fetchHtml, looksBlockedDocument, normalizeWhitespace, waitBeforeRetry } from "@/lib/scrapers/shared";
 import type { MarketplaceResult, SourceRow } from "@/types";
 
-export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
-  const maxAttempts = clampAttempts(Number(process.env.AMAZON_MAX_ATTEMPTS || 5));
+type AmazonScrapeOptions = {
+  attemptOffset?: number;
+  maxAttempts?: number;
+};
+
+export async function scrapeAmazon(row: SourceRow, options: AmazonScrapeOptions = {}): Promise<MarketplaceResult> {
+  const maxAttempts = clampAttempts(options.maxAttempts ?? Number(process.env.AMAZON_ATTEMPTS_PER_REQUEST || 2));
+  const attemptOffset = Math.max(0, Math.trunc(options.attemptOffset ?? 0));
   const baseUrl = buildAmazonUrl(row);
   const searchUrl = `https://www.amazon.in/s?k=${encodeURIComponent(buildSearchQuery(row))}`;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let localAttempt = 1; localAttempt <= maxAttempts; localAttempt += 1) {
+    const attempt = attemptOffset + localAttempt;
     const targetUrl = baseUrl || searchUrl;
 
     try {
@@ -17,10 +24,10 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
       if (response.status >= 400 || looksBlockedDocument(response.html)) {
         const fallback = baseUrl ? await tryAmazonSearchFallback(searchUrl, attempt) : null;
         if (fallback && (fallback.price !== null || fallback.title)) {
-          return toMarketplaceResult(fallback, attempt);
+          return toMarketplaceResult(fallback, attempt, true);
         }
 
-        if (attempt < maxAttempts) {
+        if (localAttempt < maxAttempts) {
           await waitBeforeRetry(attempt);
           continue;
         }
@@ -29,7 +36,8 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
           attempts: attempt,
           blocked: true,
           notes: `Amazon blocked or challenged the request after ${attempt} attempts.`,
-          url: response.url
+          url: response.url,
+          completed: false
         });
       }
 
@@ -45,7 +53,7 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
       }
 
       if (parsed.blocked) {
-        if (attempt < maxAttempts) {
+        if (localAttempt < maxAttempts) {
           await waitBeforeRetry(attempt);
           continue;
         }
@@ -54,15 +62,16 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
           attempts: attempt,
           blocked: true,
           notes: `Amazon search kept returning challenge pages after ${attempt} attempts.`,
-          url: parsed.url || response.url
+          url: parsed.url || response.url,
+          completed: false
         });
       }
 
-      if (parsed.price || parsed.title) {
-        return toMarketplaceResult(parsed, attempt);
+      if (parsed.price !== null) {
+        return toMarketplaceResult(parsed, attempt, true);
       }
     } catch (error) {
-      if (attempt < maxAttempts) {
+      if (localAttempt < maxAttempts) {
         await waitBeforeRetry(attempt);
         continue;
       }
@@ -70,15 +79,17 @@ export async function scrapeAmazon(row: SourceRow): Promise<MarketplaceResult> {
       return failureResult({
         attempts: attempt,
         blocked: false,
-        notes: error instanceof Error ? error.message : "Amazon request failed."
+        notes: error instanceof Error ? error.message : "Amazon request failed.",
+        completed: false
       });
     }
   }
 
   return failureResult({
-    attempts: maxAttempts,
+    attempts: attemptOffset + maxAttempts,
     blocked: true,
-    notes: `Amazon could not be fetched after ${maxAttempts} attempts.`
+    notes: `Amazon could not be fetched after ${attemptOffset + maxAttempts} attempts.`,
+    completed: false
   });
 }
 
@@ -228,7 +239,7 @@ function extractAmazonStructuredProduct($: cheerio.CheerioAPI) {
   };
 }
 
-function failureResult(input: { attempts: number; blocked: boolean; notes: string; url?: string }): MarketplaceResult {
+function failureResult(input: { attempts: number; blocked: boolean; notes: string; url?: string; completed?: boolean }): MarketplaceResult {
   return {
     marketplace: "amazon",
     ok: false,
@@ -238,24 +249,27 @@ function failureResult(input: { attempts: number; blocked: boolean; notes: strin
     title: "",
     url: input.url || "",
     notes: input.notes,
-    attempts: input.attempts
+    attempts: input.attempts,
+    completed: input.completed ?? true
   };
 }
 
 function toMarketplaceResult(
   parsed: { blocked: boolean; notes: string; price: number | null; title: string; url: string },
-  attempt: number
+  attempt: number,
+  completed: boolean
 ): MarketplaceResult {
   return {
     marketplace: "amazon",
-    ok: Boolean(parsed.price || parsed.title),
+    ok: parsed.price !== null,
     blocked: parsed.blocked,
     price: parsed.price,
     currency: "INR",
     title: parsed.title,
     url: parsed.url,
     notes: parsed.notes,
-    attempts: attempt
+    attempts: attempt,
+    completed
   };
 }
 

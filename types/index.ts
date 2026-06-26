@@ -18,6 +18,7 @@ export type MarketplaceResult = {
   url: string;
   notes: string;
   attempts: number;
+  completed?: boolean;
 };
 
 export type RowResult = {

@@ -8,12 +8,16 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
+      amazonAttemptOffset?: number;
+      amazonMaxAttempts?: number;
       csvText?: string;
+      includeFlipkart?: boolean;
       limit?: number;
       rows?: SourceRow[];
     };
     const csvText = String(body.csvText || "");
     const limit = clampLimit(body.limit);
+    const includeFlipkart = body.includeFlipkart !== false;
     const selectedRows = resolveRows(body.rows, csvText).slice(0, limit);
 
     if (!selectedRows.length) {
@@ -23,10 +27,25 @@ export async function POST(request: Request) {
     const results: RowResult[] = [];
 
     for (const row of selectedRows) {
-      const [amazon, flipkart] = await Promise.all([
-        scrapeAmazon(row),
-        scrapeFlipkart(row)
-      ]);
+      const amazonPromise = scrapeAmazon(row, {
+        attemptOffset: clampAttemptOffset(body.amazonAttemptOffset),
+        maxAttempts: clampAmazonMaxAttempts(body.amazonMaxAttempts)
+      });
+      const flipkartPromise = includeFlipkart
+        ? scrapeFlipkart(row)
+        : Promise.resolve({
+            marketplace: "flipkart" as const,
+            ok: false,
+            blocked: false,
+            price: null,
+            currency: "INR",
+            title: "",
+            url: "",
+            notes: "Flipkart skipped during Amazon retry batch.",
+            attempts: 0,
+            completed: true
+          });
+      const [amazon, flipkart] = await Promise.all([amazonPromise, flipkartPromise]);
 
       results.push({
         sku: row.sku,
@@ -58,6 +77,16 @@ export async function POST(request: Request) {
 function clampLimit(value: number | undefined) {
   if (!Number.isFinite(value)) return 25;
   return Math.min(Math.max(Math.trunc(value as number), 1), 100);
+}
+
+function clampAttemptOffset(value: number | undefined) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.trunc(value as number));
+}
+
+function clampAmazonMaxAttempts(value: number | undefined) {
+  if (!Number.isFinite(value)) return 2;
+  return Math.min(Math.max(Math.trunc(value as number), 1), 5);
 }
 
 function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
