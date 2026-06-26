@@ -20,6 +20,11 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
     };
   }
 
+  const resolvedDirectIdentity = await resolveFromDirectLink(row.flipkartUrl, row.fsn);
+  if (resolvedDirectIdentity) {
+    return resolvedDirectIdentity;
+  }
+
   const fsnIdentity = row.fsn ? await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn) : null;
   if (fsnIdentity) {
     return fsnIdentity;
@@ -33,6 +38,39 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
   }
 
   return null;
+}
+
+async function resolveFromDirectLink(url: string, fallbackPid = "") {
+  if (!url) return null;
+
+  try {
+    const parsedUrl = new URL(url);
+    if (!parsedUrl.hostname.toLowerCase().includes("flipkart.com")) {
+      return null;
+    }
+
+    const response = await fetchHtml(url, 1);
+    const pid =
+      normalizeWhitespace(parsedUrl.searchParams.get("pid") || "") ||
+      normalizeWhitespace(new URL(response.url).searchParams.get("pid") || "") ||
+      normalizeWhitespace(fallbackPid);
+    const lid =
+      extractLidFromText(response.url) ||
+      extractLidFromText(response.html);
+
+    if (!pid || !lid) {
+      return null;
+    }
+
+    return {
+      pid,
+      lid,
+      productUrl: response.url || url,
+      resolvedBy: "direct link"
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function resolveFromSearchQuery(query: string, label: string, preferredPid = "") {
@@ -75,4 +113,9 @@ function parseFlipkartIdentifiers(url: string) {
   } catch {
     return null;
   }
+}
+
+function extractLidFromText(value: string) {
+  const match = value.match(/[?&]lid=([A-Z0-9]+)/i);
+  return normalizeWhitespace(match?.[1] || "");
 }
