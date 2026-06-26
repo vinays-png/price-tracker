@@ -13,7 +13,6 @@ type ProgressState = {
 
 export default function HomePage() {
   const [csvText, setCsvText] = useState("");
-  const [limit, setLimit] = useState(15);
   const [fileName, setFileName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -44,10 +43,10 @@ export default function HomePage() {
 
     try {
       const parsedRows = parseCsvToRows(csvText);
-      const selectedRows = parsedRows.slice(0, clampLimit(limit));
+      const selectedRows = parsedRows.filter((row) => Boolean(row.sku.trim()));
 
       if (!selectedRows.length) {
-        throw new Error("No usable rows were found in the CSV.");
+        throw new Error("No rows with SKU details were found in the CSV.");
       }
 
       const completedRows: RowResult[] = [];
@@ -147,7 +146,7 @@ export default function HomePage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `marketplace-prices-${Date.now()}` + '.csv';
+    anchor.download = `marketplace-prices-${Date.now()}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -181,18 +180,6 @@ export default function HomePage() {
             <input id="csvFile" type="file" accept=".csv,text/csv" onChange={onFileChange} />
           </div>
 
-          <div className="field">
-            <label htmlFor="limit">Rows To Process</label>
-            <input
-              id="limit"
-              type="number"
-              min={1}
-              max={100}
-              value={limit}
-              onChange={(event) => setLimit(Number(event.target.value || 1))}
-            />
-          </div>
-
           <div className="button-row">
             <button className="button button-primary" onClick={runCheck} disabled={isLoading}>
               {isLoading ? "Checking prices..." : "Fetch Prices"}
@@ -205,6 +192,7 @@ export default function HomePage() {
           <p className="note">
             File: <strong>{fileName || "No CSV selected"}</strong>
           </p>
+          <p className="note">The app will automatically fetch prices for every row that has a SKU value.</p>
           <p className="note">
             Amazon retries are bounded to avoid serverless timeouts. Increase `AMAZON_MAX_ATTEMPTS` in Vercel if you
             want more retries.
@@ -331,11 +319,6 @@ async function postJson<T>(url: string, body: unknown) {
 
 function buildRowLabel(row: SourceRow) {
   return row.sku || row.asin || row.fsn || row.title || row.searchQuery || "current row";
-}
-
-function clampLimit(value: number) {
-  if (!Number.isFinite(value)) return 25;
-  return Math.min(Math.max(Math.trunc(value), 1), 100);
 }
 
 function MarketplaceCell(props: {
