@@ -29,10 +29,8 @@ export async function POST(request: Request) {
 
     for (const row of selectedRows) {
       for (const pincode of pincodes) {
-        const [amazon, flipkart] = await Promise.all([
-          scrapeAmazonDelivery(row, pincode),
-          scrapeFlipkartDelivery(row, pincode)
-        ]);
+        const amazon = await scrapeAmazonDelivery(row, pincode);
+        const flipkart = await scrapeFlipkartDelivery(row, pincode);
 
         results.push({
           sku: row.sku,

@@ -19,10 +19,7 @@ const REMOTE_CHROMIUM_PACK_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 
 export async function fetchRenderedHtml(url: string) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
-  try {
+  return withBrowserPage(async (page) => {
     await preparePage(page);
 
     await page.goto(url, {
@@ -56,16 +53,11 @@ export async function fetchRenderedHtml(url: string) {
       html,
       text
     };
-  } finally {
-    await page.close();
-  }
+  });
 }
 
 export async function fetchAmazonDeliveryHtml(url: string, pincode: string) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
-  try {
+  return withBrowserPage(async (page) => {
     await preparePage(page);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
@@ -101,9 +93,7 @@ export async function fetchAmazonDeliveryHtml(url: string, pincode: string) {
       text,
       forced
     };
-  } finally {
-    await page.close();
-  }
+  });
 }
 
 async function getBrowser() {
@@ -117,11 +107,25 @@ async function getBrowser() {
   return globalThis.__priceTrackerBrowserPromise;
 }
 
+async function resetBrowser() {
+  const browserPromise = globalThis.__priceTrackerBrowserPromise;
+  globalThis.__priceTrackerBrowserPromise = undefined;
+
+  if (!browserPromise) return;
+
+  try {
+    const browser = await browserPromise;
+    await browser.close();
+  } catch {
+    // Ignore close failures while resetting a broken browser instance.
+  }
+}
+
 async function launchBrowser() {
   chromium.setGraphicsMode = false;
   const executablePath = await resolveChromiumExecutablePath();
 
-  return puppeteer.launch({
+  const browser = await puppeteer.launch({
     args: await puppeteer.defaultArgs({
       args: chromium.args,
       headless: "shell"
@@ -130,6 +134,14 @@ async function launchBrowser() {
     executablePath,
     headless: "shell"
   });
+
+  browser.once("disconnected", () => {
+    if (globalThis.__priceTrackerBrowserPromise) {
+      globalThis.__priceTrackerBrowserPromise = undefined;
+    }
+  });
+
+  return browser;
 }
 
 async function resolveChromiumExecutablePath() {
@@ -216,4 +228,47 @@ async function trySetAmazonPincode(page: Page, pincode: string) {
   } catch {
     return false;
   }
+}
+
+async function withBrowserPage<T>(task: (page: Page) => Promise<T>) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const browser = await getBrowser();
+    let page: Page | null = null;
+
+    try {
+      page = await browser.newPage();
+      return await task(page);
+    } catch (error) {
+      lastError = error;
+
+      if (!isRecoverableBrowserError(error) || attempt === 2) {
+        throw error;
+      }
+
+      await resetBrowser();
+    } finally {
+      if (page) {
+        try {
+          await page.close();
+        } catch {
+          // Ignore failures while closing a page from a crashed/disconnected browser.
+        }
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function isRecoverableBrowserError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("connection closed") ||
+    message.includes("browser has disconnected") ||
+    message.includes("target closed") ||
+    message.includes("session closed") ||
+    message.includes("protocol error")
+  );
 }
