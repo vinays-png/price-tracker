@@ -48,6 +48,19 @@ const INITIAL_PRICE_STATE: PriceState = {
   result: null
 };
 
+type WorkbookCell = {
+  mergeAcross?: number;
+  styleId?: string;
+  value: number | string;
+};
+
+type WorkbookRow = WorkbookCell[];
+
+type WorkbookSheet = {
+  name: string;
+  rows: WorkbookRow[];
+};
+
 const INITIAL_DELIVERY_STATE: DeliveryState = {
   csvText: "",
   error: "",
@@ -311,11 +324,11 @@ export default function HomePage() {
   }
 
   function downloadPriceResults() {
-    downloadRows(buildPriceExportRows(priceState.result), "marketplace-prices");
+    downloadCsvRows(buildPriceExportRows(priceState.result), "marketplace-prices");
   }
 
   function downloadDeliveryResults() {
-    downloadRows(buildDeliveryExportRows(deliveryState.result), "marketplace-delivery");
+    downloadWorkbook(buildDeliveryWorkbook(deliveryState.result), "marketplace-delivery");
   }
 
   const priceHasResults = Boolean(priceState.result && priceState.result.rows.length);
@@ -497,7 +510,7 @@ export default function HomePage() {
                   {deliveryState.isLoading ? "Checking delivery..." : "Fetch Delivery Dates"}
                 </button>
                 <button className="button button-secondary" onClick={downloadDeliveryResults} disabled={!deliveryState.result}>
-                  Export Results CSV
+                  Export Results Workbook
                 </button>
               </div>
 
@@ -645,7 +658,7 @@ function getProcessableRows(csvText: string) {
   return selectedRows;
 }
 
-function downloadRows(rows: Array<Array<string | number>>, fileStem: string) {
+function downloadCsvRows(rows: Array<Array<string | number>>, fileStem: string) {
   if (!rows.length) return;
 
   const csv = rows
@@ -661,6 +674,19 @@ function downloadRows(rows: Array<Array<string | number>>, fileStem: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${fileStem}-${Date.now()}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadWorkbook(workbook: WorkbookSheet[], fileStem: string) {
+  if (!workbook.length) return;
+
+  const xml = buildWorkbookXml(workbook);
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${fileStem}-${Date.now()}.xml`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -744,6 +770,238 @@ function buildDeliveryExportRows(result: CheckDeliveryResponse | null) {
       row.flipkart.url
     ])
   ];
+}
+
+function buildDeliveryWorkbook(result: CheckDeliveryResponse | null): WorkbookSheet[] {
+  if (!result) return [];
+
+  return [
+    {
+      name: "Details",
+      rows: buildDeliveryExportRows(result).map((row, rowIndex) =>
+        row.map((value) => ({
+          styleId: rowIndex === 0 ? "header" : "body",
+          value
+        }))
+      )
+    },
+    {
+      name: "Summary",
+      rows: buildDeliverySummaryRows(result)
+    }
+  ];
+}
+
+function buildDeliverySummaryRows(result: CheckDeliveryResponse): WorkbookRow[] {
+  const pincodes = uniqueInOrder(result.rows.map((row) => row.pincode));
+  const rowsBySku = new Map<string, DeliveryRowResult[]>();
+
+  for (const row of result.rows) {
+    const skuKey = row.sku || row.title || row.asin || row.fsn || "Unknown SKU";
+    const bucket = rowsBySku.get(skuKey) ?? [];
+    bucket.push(row);
+    rowsBySku.set(skuKey, bucket);
+  }
+
+  const workbookRows: WorkbookRow[] = [
+    [
+      { styleId: "groupSpacer", value: "" },
+      { mergeAcross: Math.max(pincodes.length - 1, 0), styleId: "groupFk", value: "FK" },
+      { mergeAcross: Math.max(pincodes.length - 1, 0), styleId: "groupAmz", value: "AMZ" }
+    ],
+    [
+      { styleId: "header", value: "SKU" },
+      ...pincodes.map((pincode) => ({ styleId: "header", value: pincode })),
+      ...pincodes.map((pincode) => ({ styleId: "header", value: pincode }))
+    ]
+  ];
+
+  for (const [skuKey, skuRows] of rowsBySku) {
+    const rowByPincode = new Map(skuRows.map((row) => [row.pincode, row] as const));
+    workbookRows.push([
+      { styleId: "sku", value: skuKey },
+      ...pincodes.map((pincode) => ({
+        styleId: "summaryValue",
+        value: summarizeDeliveryValue(rowByPincode.get(pincode)?.flipkart, result.checkedAt)
+      })),
+      ...pincodes.map((pincode) => ({
+        styleId: "summaryValue",
+        value: summarizeDeliveryValue(rowByPincode.get(pincode)?.amazon, result.checkedAt)
+      }))
+    ]);
+  }
+
+  return workbookRows;
+}
+
+function summarizeDeliveryValue(result: DeliveryMarketplaceResult | undefined, checkedAt: string) {
+  if (!result || !result.ok || !result.deliveryDate) {
+    return "";
+  }
+
+  const explicitRange = extractRangeFromText(result.deliveryDate);
+  if (explicitRange) {
+    return explicitRange;
+  }
+
+  const textForDates = result.marketplace === "amazon" ? result.deliveryDate.split(/Or fastest delivery/i)[0] : result.deliveryDate;
+  const dateOffsets = extractDeliveryDayOffsets(textForDates, checkedAt);
+  if (dateOffsets.length) {
+    return dateOffsets[0] === dateOffsets[dateOffsets.length - 1]
+      ? String(dateOffsets[0])
+      : `${dateOffsets[0]}-${dateOffsets[dateOffsets.length - 1]}`;
+  }
+
+  const relativeDay = extractRelativeDay(result.deliveryDate);
+  return relativeDay === null ? result.deliveryDate : String(relativeDay);
+}
+
+function extractRangeFromText(value: string) {
+  const rangeMatch = value.match(/\b(\d{1,2})\s*[-to]+\s*(\d{1,2})\b/i);
+  if (!rangeMatch) return "";
+
+  return `${rangeMatch[1]}-${rangeMatch[2]}`;
+}
+
+function extractRelativeDay(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("today")) return 0;
+  if (normalized.includes("tomorrow")) return 1;
+  return null;
+}
+
+function extractDeliveryDayOffsets(value: string, checkedAt: string) {
+  const baseDate = toIndiaStartOfDay(checkedAt);
+  const dateRegex =
+    /\b(?:(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+)?(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))?/gi;
+  const offsets: number[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = dateRegex.exec(value)) !== null) {
+    const day = Number(match[2]);
+    const monthIndex = monthNameToIndex(match[3]);
+    if (monthIndex < 0) continue;
+
+    const parsed = buildFutureDate(day, monthIndex, checkedAt, match[4] ? Number(match[4]) : undefined);
+    if (!parsed) continue;
+
+    const difference = Math.round((parsed.getTime() - baseDate.getTime()) / 86400000);
+    if (difference >= 0) {
+      offsets.push(difference);
+    }
+  }
+
+  return uniqueInOrder(offsets).sort((left, right) => left - right);
+}
+
+function monthNameToIndex(value: string) {
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  return months.indexOf(value.slice(0, 3).toLowerCase());
+}
+
+function buildFutureDate(day: number, monthIndex: number, checkedAt: string, explicitYear?: number) {
+  const base = toIndiaStartOfDay(checkedAt);
+  const baseYear = base.getUTCFullYear();
+  const yearCandidates = explicitYear ? [explicitYear] : [baseYear, baseYear + 1];
+
+  for (const year of yearCandidates) {
+    const candidate = new Date(Date.UTC(year, monthIndex, day));
+    if (explicitYear || candidate.getTime() >= base.getTime()) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function toIndiaStartOfDay(value: string) {
+  const date = new Date(value);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function uniqueInOrder<T>(values: T[]) {
+  return Array.from(new Set(values));
+}
+
+function buildWorkbookXml(sheets: WorkbookSheet[]) {
+  const workbookBody = sheets
+    .map(
+      (sheet) => `
+        <Worksheet ss:Name="${xmlEscape(sheet.name)}">
+          <Table>
+            ${sheet.rows.map((row) => buildWorkbookRowXml(row)).join("")}
+          </Table>
+        </Worksheet>
+      `
+    )
+    .join("");
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Styles>
+    <Style ss:ID="Default" ss:Name="Normal">
+      <Alignment ss:Vertical="Center"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+      </Borders>
+      <Font ss:FontName="Calibri" ss:Size="11"/>
+      <Interior/>
+    </Style>
+    <Style ss:ID="header">
+      <Font ss:Bold="1"/>
+      <Interior ss:Color="#F3EFE8" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="body"/>
+    <Style ss:ID="groupSpacer">
+      <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="groupFk">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:Bold="1"/>
+      <Interior ss:Color="#E7F0DD" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="groupAmz">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:Bold="1"/>
+      <Interior ss:Color="#F8E8BA" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="sku">
+      <Font ss:Bold="1"/>
+    </Style>
+    <Style ss:ID="summaryValue">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Interior ss:Color="#FCEBD6" ss:Pattern="Solid"/>
+    </Style>
+  </Styles>
+  ${workbookBody}
+</Workbook>`;
+}
+
+function buildWorkbookRowXml(row: WorkbookRow) {
+  return `<Row>${row
+    .map((cell) => {
+      const type = typeof cell.value === "number" ? "Number" : "String";
+      const mergeAcross = cell.mergeAcross ? ` ss:MergeAcross="${cell.mergeAcross}"` : "";
+      const style = cell.styleId ? ` ss:StyleID="${cell.styleId}"` : "";
+      return `<Cell${style}${mergeAcross}><Data ss:Type="${type}">${xmlEscape(String(cell.value ?? ""))}</Data></Cell>`;
+    })
+    .join("")}</Row>`;
+}
+
+function xmlEscape(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 function buildRowLabel(row: SourceRow) {
