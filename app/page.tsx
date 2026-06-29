@@ -686,7 +686,7 @@ function downloadWorkbook(workbook: WorkbookSheet[], fileStem: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${fileStem}-${Date.now()}.xml`;
+  anchor.download = `${fileStem}-${Date.now()}.xls`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
