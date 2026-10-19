@@ -10,6 +10,44 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       const response = await fetchHtml(row.flipkartUrl, 1);
       const parsed = parseFlipkartProductPage(response.html, response.url);
 
+      if (parsed.price !== null) {
+        return {
+          marketplace: "flipkart",
+          ok: true,
+          blocked: false,
+          price: parsed.price,
+          currency: "INR",
+          title: parsed.title,
+          url: parsed.url || response.url,
+          notes: "Price captured from provided Flipkart link.",
+          attempts: 1
+        };
+      }
+
+      // PID-only links such as /product/p/itme?pid=... often do not expose
+      // the product page's price in their HTML. Resolve the FSN to a canonical
+      // product link before giving up on the provided link.
+      const identity = await resolveFlipkartIdentity(row);
+      if (identity && !sameUrl(identity.productUrl, response.url)) {
+        const resolvedResponse = await fetchHtml(identity.productUrl, 1);
+        const resolved = parseFlipkartProductPage(resolvedResponse.html, resolvedResponse.url);
+
+        return {
+          marketplace: "flipkart",
+          ok: Boolean(resolved.price || resolved.title),
+          blocked: false,
+          price: resolved.price,
+          currency: "INR",
+          title: resolved.title || parsed.title,
+          url: resolved.url || identity.productUrl,
+          notes:
+            resolved.price !== null
+              ? `Price captured after resolving the Flipkart link using ${identity.resolvedBy}.`
+              : `${resolved.notes} The link was resolved using ${identity.resolvedBy}.`,
+          attempts: 2
+        };
+      }
+
       return {
         marketplace: "flipkart",
         ok: Boolean(parsed.price || parsed.title),
@@ -83,6 +121,19 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       notes: error instanceof Error ? error.message : "Flipkart request failed.",
       attempts: 1
     };
+  }
+}
+
+function sameUrl(left: string, right: string) {
+  try {
+    const normalize = (value: string) => {
+      const url = new URL(value);
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    };
+    return normalize(left) === normalize(right);
+  } catch {
+    return left === right;
   }
 }
 
@@ -205,3 +256,4 @@ function extractFlipkartStructuredProduct($: cheerio.CheerioAPI) {
     price: null as number | null
   };
 }
+

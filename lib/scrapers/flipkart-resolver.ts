@@ -20,12 +20,23 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
     };
   }
 
+  // The generic product/p/itme path needs the FSN (pid) to find the real
+  // product listing. Try that lookup before fetching the generic URL again.
+  const isGenericPidLink = isGenericFlipkartPidLink(row.flipkartUrl);
+  let fsnIdentity: FlipkartIdentity | null = null;
+  if (isGenericPidLink && row.fsn) {
+    fsnIdentity = await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn);
+    if (fsnIdentity) {
+      return fsnIdentity;
+    }
+  }
+
   const resolvedDirectIdentity = await resolveFromDirectLink(row.flipkartUrl, row.fsn);
   if (resolvedDirectIdentity) {
     return resolvedDirectIdentity;
   }
 
-  const fsnIdentity = row.fsn ? await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn) : null;
+  fsnIdentity ??= row.fsn ? await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn) : null;
   if (fsnIdentity) {
     return fsnIdentity;
   }
@@ -38,6 +49,19 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
   }
 
   return null;
+}
+
+function isGenericFlipkartPidLink(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    return (
+      parsedUrl.hostname.toLowerCase().includes("flipkart.com") &&
+      /^\/product\/p\/itme\/?$/i.test(parsedUrl.pathname) &&
+      Boolean(parsedUrl.searchParams.get("pid"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function resolveFromDirectLink(url: string, fallbackPid = "") {
@@ -134,3 +158,4 @@ function extractLidFromText(value: string) {
 
   return "";
 }
+
