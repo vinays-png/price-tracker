@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { buildSearchQuery } from "@/lib/search-query";
+import { fetchRenderedHtml } from "@/lib/scrapers/browser";
 import { resolveFlipkartIdentity } from "@/lib/scrapers/flipkart-resolver";
 import { extractPrice, fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
 import type { MarketplaceResult, SourceRow } from "@/types";
@@ -7,8 +8,8 @@ import type { MarketplaceResult, SourceRow } from "@/types";
 export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult> {
   try {
     if (isDirectFlipkartUrl(row.flipkartUrl)) {
-      const response = await fetchHtml(row.flipkartUrl, 1);
-      const parsed = parseFlipkartProductPage(response.html, response.url);
+      const direct = await fetchFlipkartProductPage(row.flipkartUrl);
+      const parsed = direct.parsed;
 
       if (parsed.price !== null) {
         return {
@@ -18,8 +19,10 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
           price: parsed.price,
           currency: "INR",
           title: parsed.title,
-          url: parsed.url || response.url,
-          notes: "Price captured from provided Flipkart link.",
+          url: parsed.url || direct.url,
+          notes: direct.rendered
+            ? "Price captured from the rendered provided Flipkart link."
+            : "Price captured from provided Flipkart link.",
           attempts: 1
         };
       }
@@ -28,9 +31,9 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       // the product page's price in their HTML. Resolve the FSN to a canonical
       // product link before giving up on the provided link.
       const identity = await resolveFlipkartIdentity(row);
-      if (identity && !sameUrl(identity.productUrl, response.url)) {
-        const resolvedResponse = await fetchHtml(identity.productUrl, 1);
-        const resolved = parseFlipkartProductPage(resolvedResponse.html, resolvedResponse.url);
+      if (identity && !sameUrl(identity.productUrl, direct.url)) {
+        const resolvedPage = await fetchFlipkartProductPage(identity.productUrl);
+        const resolved = resolvedPage.parsed;
 
         return {
           marketplace: "flipkart",
@@ -39,11 +42,11 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
           price: resolved.price,
           currency: "INR",
           title: resolved.title || parsed.title,
-          url: resolved.url || identity.productUrl,
+          url: resolved.url || resolvedPage.url || identity.productUrl,
           notes:
             resolved.price !== null
-              ? `Price captured after resolving the Flipkart link using ${identity.resolvedBy}.`
-              : `${resolved.notes} The link was resolved using ${identity.resolvedBy}.`,
+              ? `Price captured after resolving the Flipkart link using ${identity.resolvedBy}.${resolvedPage.rendered ? " The product page was rendered." : ""}`
+              : `${resolved.notes} The link was resolved using ${identity.resolvedBy}.${resolvedPage.rendered ? " The rendered page was also checked." : ""}`,
           attempts: 2
         };
       }
@@ -55,8 +58,10 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
         price: parsed.price,
         currency: "INR",
         title: parsed.title,
-        url: parsed.url || response.url,
-        notes: parsed.price !== null ? "Price captured from provided Flipkart link." : parsed.notes,
+        url: parsed.url || direct.url,
+        notes: parsed.price !== null
+          ? "Price captured from provided Flipkart link."
+          : `${parsed.notes}${direct.rendered ? " The rendered page was also checked." : ""}`,
         attempts: 1
       };
     }
@@ -78,8 +83,8 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
     const identity = await resolveFlipkartIdentity(row);
 
     if (identity) {
-      const response = await fetchHtml(identity.productUrl, 1);
-      const parsed = parseFlipkartProductPage(response.html, response.url);
+      const page = await fetchFlipkartProductPage(identity.productUrl);
+      const parsed = page.parsed;
 
       return {
         marketplace: "flipkart",
@@ -88,8 +93,11 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
         price: parsed.price,
         currency: "INR",
         title: parsed.title,
-        url: parsed.url || response.url,
-        notes: parsed.price !== null ? parsed.notes : `${parsed.notes} Product was resolved using ${identity.resolvedBy}.`,
+        url: parsed.url || page.url || identity.productUrl,
+        notes:
+          parsed.price !== null
+            ? `${parsed.notes}${page.rendered ? " Product page was rendered." : ""}`
+            : `${parsed.notes} Product was resolved using ${identity.resolvedBy}.${page.rendered ? " The rendered page was also checked." : ""}`,
         attempts: 1
       };
     }
@@ -148,7 +156,31 @@ function isDirectFlipkartUrl(url: string) {
   }
 }
 
-function parseFlipkartProductPage(html: string, url: string) {
+async function fetchFlipkartProductPage(url: string) {
+  const response = await fetchHtml(url, 1);
+  const initial = parseFlipkartProductPage(response.html, response.url || url);
+
+  if (initial.price !== null) {
+    return { parsed: initial, url: response.url || url, rendered: false };
+  }
+
+  try {
+    const rendered = await fetchRenderedHtml(response.url || url);
+    const parsed = parseFlipkartProductPage(rendered.html, response.url || url, rendered.text);
+    return {
+      parsed: {
+        ...parsed,
+        title: parsed.title || initial.title
+      },
+      url: response.url || url,
+      rendered: true
+    };
+  } catch {
+    return { parsed: initial, url: response.url || url, rendered: false };
+  }
+}
+
+function parseFlipkartProductPage(html: string, url: string, visibleText = "") {
   const $ = cheerio.load(html);
   const structured = extractFlipkartStructuredProduct($);
   const title = normalizeWhitespace(
@@ -166,7 +198,8 @@ function parseFlipkartProductPage(html: string, url: string) {
       $('div[class*="Nx9bqj"]').first().text() ||
       ""
   );
-  const price = structured.price ?? extractPrice(priceText);
+  const visiblePrice = visibleText.match(/₹\s*[\d,]+(?:\.\d{1,2})?/)?.[0] || "";
+  const price = structured.price ?? extractPrice(priceText) ?? extractPrice(visiblePrice);
 
   return {
     title,
@@ -198,7 +231,7 @@ async function resolveFlipkartSearchResult(html: string) {
       ""
   );
 
-  if (priceText || title) {
+  if (priceText) {
     return {
       title,
       price: extractPrice(priceText),
@@ -207,8 +240,16 @@ async function resolveFlipkartSearchResult(html: string) {
     };
   }
 
-  const response = await fetchHtml(productUrl, 1);
-  return parseFlipkartProductPage(response.html, response.url);
+  const page = await fetchFlipkartProductPage(productUrl);
+  return {
+    ...page.parsed,
+    title: page.parsed.title || title,
+    notes:
+      page.parsed.price !== null
+        ? page.parsed.notes
+        : `${page.parsed.notes} Product was resolved from Flipkart search results.`,
+    url: page.parsed.url || page.url || productUrl
+  };
 }
 
 function extractFlipkartStructuredProduct($: cheerio.CheerioAPI) {
