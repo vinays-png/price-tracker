@@ -192,7 +192,11 @@ function parseFlipkartProductPage(html: string, url: string, visibleText = "") {
       ""
   );
   const priceText = normalizeWhitespace(
-    $('meta[property="product:price:amount"]').attr("content") ||
+    $("div.v1zwn21n")
+      .filter((_, element) => /₹/.test($(element).text()))
+      .first()
+      .text() ||
+      $('meta[property="product:price:amount"]').attr("content") ||
       $("div.Nx9bqj.CxhGGd").first().text() ||
       $("div._30jeq3").first().text() ||
       $('div[class*="Nx9bqj"]').first().text() ||
