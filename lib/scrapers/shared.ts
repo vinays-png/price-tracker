@@ -1,3 +1,5 @@
+import { safeFetchHtml } from "./safe-request";
+
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
@@ -5,31 +7,12 @@ const USER_AGENTS = [
 ];
 
 export async function fetchHtml(url: string, attempt: number) {
-  const controller = new AbortController();
-  const timeoutMs = Number(process.env.SCRAPE_REQUEST_TIMEOUT_MS || 15000);
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "accept-language": "en-IN,en;q=0.9",
-        "cache-control": "no-cache",
-        pragma: "no-cache",
-        "user-agent": USER_AGENTS[attempt % USER_AGENTS.length] || USER_AGENTS[0]
-      }
-    });
-
-    return {
-      status: response.status,
-      url: response.url,
-      html: await response.text()
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return safeFetchHtml(url, {
+    "accept-language": "en-IN,en;q=0.9",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    "user-agent": USER_AGENTS[attempt % USER_AGENTS.length] || USER_AGENTS[0]
+  }, Number(process.env.SCRAPE_REQUEST_TIMEOUT_MS || 15000));
 }
 
 export function extractPrice(value: string) {

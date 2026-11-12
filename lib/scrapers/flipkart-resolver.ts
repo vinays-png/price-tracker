@@ -1,3 +1,4 @@
+import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
 import { buildFlipkartSearchQueries } from "@/lib/search-query";
 import { fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
@@ -55,7 +56,7 @@ function isGenericFlipkartPidLink(url: string) {
   try {
     const parsedUrl = new URL(url);
     return (
-      parsedUrl.hostname.toLowerCase().includes("flipkart.com") &&
+      isFlipkartUrl(parsedUrl.href) &&
       /^\/product\/p\/itme\/?$/i.test(parsedUrl.pathname) &&
       Boolean(parsedUrl.searchParams.get("pid"))
     );
@@ -69,7 +70,7 @@ async function resolveFromDirectLink(url: string, fallbackPid = "") {
 
   try {
     const parsedUrl = new URL(url);
-    if (!parsedUrl.hostname.toLowerCase().includes("flipkart.com")) {
+    if (!isFlipkartUrl(parsedUrl.href)) {
       return null;
     }
 
@@ -131,7 +132,7 @@ function parseFlipkartIdentifiers(url: string) {
     const pid = normalizeWhitespace(parsedUrl.searchParams.get("pid") || "");
     const lid = normalizeWhitespace(parsedUrl.searchParams.get("lid") || "");
 
-    if (!pid || !lid) return null;
+    if (!isFlipkartUrl(url) || !pid || !lid) return null;
 
     return { pid, lid };
   } catch {

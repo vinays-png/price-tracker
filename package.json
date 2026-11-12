@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:security": "tsc -p tests/tsconfig.json && node --test tests/security.test.cjs",
+    "test:browser-security": "tsc -p tests/tsconfig.json && node --test tests/browser-security.test.cjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",

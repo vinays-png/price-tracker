@@ -1,3 +1,5 @@
+import { BROWSER_NETWORK_ARGS, installRequestGuard } from "./browser-network";
+import { validateScrapeUrl } from "./safe-request";
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 import type { Browser, Page } from "puppeteer-core";
@@ -19,6 +21,7 @@ const REMOTE_CHROMIUM_PACK_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 
 export async function fetchRenderedHtml(url: string) {
+  validateScrapeUrl(url);
   return withBrowserPage(async (page) => {
     await preparePage(page);
 
@@ -57,6 +60,7 @@ export async function fetchRenderedHtml(url: string) {
 }
 
 export async function fetchAmazonDeliveryHtml(url: string, pincode: string) {
+  validateScrapeUrl(url);
   return withBrowserPage(async (page) => {
     await preparePage(page);
     await page.goto(url, {
@@ -127,7 +131,9 @@ async function launchBrowser() {
 
   const browser = await puppeteer.launch({
     args: await puppeteer.defaultArgs({
-      args: chromium.args,
+      // All HTTP(S) requests are fulfilled by safeRequest below. Fail closed for
+      // browser traffic that cannot be intercepted (workers, sockets, popups).
+      args: [...chromium.args.filter((arg) => arg !== "--single-process"), ...BROWSER_NETWORK_ARGS],
       headless: "shell"
     }),
     defaultViewport: VIEWPORT,
@@ -158,6 +164,7 @@ async function resolveChromiumExecutablePath() {
 }
 
 async function preparePage(page: Page) {
+  await installRequestGuard(page);
   await page.setViewport(VIEWPORT);
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -236,9 +243,11 @@ async function withBrowserPage<T>(task: (page: Page) => Promise<T>) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const browser = await getBrowser();
     let page: Page | null = null;
+    let context: Awaited<ReturnType<Browser["createBrowserContext"]>> | null = null;
 
     try {
-      page = await browser.newPage();
+      context = await browser.createBrowserContext();
+      page = await context.newPage();
       return await task(page);
     } catch (error) {
       lastError = error;
@@ -249,9 +258,9 @@ async function withBrowserPage<T>(task: (page: Page) => Promise<T>) {
 
       await resetBrowser();
     } finally {
-      if (page) {
+      if (context) {
         try {
-          await page.close();
+          await context.close();
         } catch {
           // Ignore failures while closing a page from a crashed/disconnected browser.
         }

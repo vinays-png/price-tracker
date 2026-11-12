@@ -1,3 +1,4 @@
+import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
 import { buildSearchQuery } from "@/lib/search-query";
 import { fetchRenderedHtml } from "@/lib/scrapers/browser";
@@ -150,7 +151,7 @@ function isDirectFlipkartUrl(url: string) {
 
   try {
     const parsedUrl = new URL(url);
-    return parsedUrl.hostname.toLowerCase().includes("flipkart.com");
+    return isFlipkartUrl(parsedUrl.href);
   } catch {
     return false;
   }
