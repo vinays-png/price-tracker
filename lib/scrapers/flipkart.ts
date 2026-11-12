@@ -222,12 +222,35 @@ export function parseFlipkartProductPage(html: string, url: string, _visibleText
     $('meta[property="product:price:amount"]').attr("content") ||
     $("div.Nx9bqj.CxhGGd").first().text() || $("div._30jeq3._16Jk6d").first().text() || ""
   ) : "";
-  const price = structured.price ?? extractPrice(priceText);
+  const displayedPrice = documentMatches ? extractDisplayedFlipkartPrice($) : null;
+  const price = displayedPrice ?? structured.price ?? extractPrice(priceText);
   return {
     title, price,
     notes: price !== null ? "Price captured from Flipkart product page." : "Flipkart page loaded but a verified product price was not found.",
     url
   };
+}
+
+// Observed shopper-facing price row: discount, struck-through MRP, then sale
+// price. Require the primary product container and a unique non-linked row so
+// recommendation cards and conditional "Buy at"/bank offers cannot qualify.
+function extractDisplayedFlipkartPrice($: cheerio.CheerioAPI) {
+  const candidates: number[] = [];
+  $('div.CTTtEa').filter((_, container) => $(container).find('h1').length === 1)
+    .find('div.v1zwn21n.v1zwn20').each((_, element) => {
+      const priceNode = $(element);
+      if (!/^₹\s*\d[\d,]*(?:\.\d{1,2})?$/.test(priceNode.text().trim())) return;
+      const row = priceNode.parent().parent();
+      const anchor = row.parent();
+      if (!priceNode.parent().is('div.css-g5y9jx') || !anchor.is('a._1o6mltlk4') || anchor.attr('href') !== undefined) return;
+      const mrps = row.find('div.v1zwn21o.v1zwn21').filter((_, node) =>
+        /text-decoration(?:-line)?\s*:\s*line-through/i.test($(node).attr('style') || ''));
+      if (mrps.length !== 1 || row.find('div.v1zwn21n.v1zwn20').length !== 1) return;
+      const price = extractPrice(priceNode.text());
+      const mrp = extractPrice(mrps.text());
+      if (price !== null && mrp !== null && price >= 0 && price <= mrp) candidates.push(price);
+    });
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 async function resolveFlipkartSearchResult(html: string) {

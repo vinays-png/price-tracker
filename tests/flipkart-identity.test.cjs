@@ -65,3 +65,22 @@ test('direct price fetch honors explicit FSN even when the original URL has no P
  const result=await scrapeFlipkart({...row,flipkartUrl:'https://www.flipkart.com/product/p/known'});
  assert.equal(result.price,null);assert.equal(result.ok,false);assert.match(result.notes,/no substitute/);
 });
+
+const priceRow=(price='₹18,499',mrp='49,999',href='')=>`<a class="_1o6mltlk4" ${href}><div><div class="css-g5y9jx">63%</div><div class="css-g5y9jx"><div class="v1zwn21o v1zwn21" style="text-decoration-line: line-through">${mrp}</div></div><div class="css-g5y9jx"><div class="v1zwn21n v1zwn20">${price}</div></div></div></a>`;
+const pricePage=(content,pid='TRD123')=>`<meta property="og:url" content="https://www.flipkart.com/product/p/itme?pid=${pid}"><link rel="canonical" href="https://www.flipkart.com/product/p/itme"><div class="CTTtEa"><h1>Requested product</h1>${content}</div>`;
+
+test('captures shopper selling price beside MRP, not conditional offer or structured-price discrepancy',()=>{
+ const {parseFlipkartProductPage:parse}=require('../.test-build/lib/scrapers/flipkart.js');
+ const html=pricePage(priceRow()+'<p>Buy at ₹17,574</p><script type="application/ld+json">{"@type":"Product","sku":"TRD123","offers":{"price":17574}}</script>');
+ assert.equal(parse(html,row.flipkartUrl).price,18499);
+ assert.equal(parse(pricePage(priceRow(),'OTHER'),row.flipkartUrl).price,null);
+});
+
+test('ignores Notify Me recommendations, linked cards, ambiguous rows and invalid MRP relationships',()=>{
+ const {parseFlipkartProductPage:parse}=require('../.test-build/lib/scrapers/flipkart.js');
+ assert.equal(parse(pricePage('<p>Notify Me</p>')+priceRow(),row.flipkartUrl).price,null);
+ assert.equal(parse(pricePage(priceRow('₹18,499','49,999','href="/other/p/x?pid=OTHER"')),row.flipkartUrl).price,null);
+ assert.equal(parse(pricePage(priceRow()+priceRow('₹999')),row.flipkartUrl).price,null);
+ assert.equal(parse(pricePage(priceRow('₹18,499','999')),row.flipkartUrl).price,null);
+ assert.equal(parse(pricePage(priceRow().replace('line-through','none')),row.flipkartUrl).price,null);
+});
