@@ -1,3 +1,4 @@
+import { normalizeSourceRow } from "@/lib/source-row";
 import { parseCsvToRows } from "@/lib/csv";
 import { scrapeAmazon } from "@/lib/scrapers/amazon";
 import { scrapeFlipkart } from "@/lib/scrapers/flipkart";
@@ -91,7 +92,7 @@ function clampAmazonMaxAttempts(value: number | undefined) {
 
 function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
   if (Array.isArray(rows) && rows.length) {
-    return rows.map(normalizeIncomingRow);
+    return rows.map(normalizeSourceRow);
   }
 
   if (!csvText.trim()) {
@@ -99,20 +100,4 @@ function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
   }
 
   return parseCsvToRows(csvText);
-}
-
-function normalizeIncomingRow(row: SourceRow): SourceRow {
-  return {
-    sku: cleanText(row.sku),
-    asin: cleanText(row.asin),
-    fsn: cleanText(row.fsn),
-    title: cleanText(row.title),
-    searchQuery: cleanText(row.searchQuery),
-    amazonUrl: cleanText(row.amazonUrl),
-    flipkartUrl: cleanText(row.flipkartUrl)
-  };
-}
-
-function cleanText(value: string | undefined) {
-  return String(value ?? "").trim();
 }

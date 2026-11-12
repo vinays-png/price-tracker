@@ -56,7 +56,7 @@ HTML redirects are checked individually and limited to five hops.
 
 Browser navigation uses the same policy. Browser asset requests are limited to
 these marketplace hosts and the Amazon/Flipkart CDN domains listed in
-`lib/scrapers/safe-request.ts`. Requests are fulfilled through the checked Node
+`lib/marketplace-url.ts`. Requests are fulfilled through the checked Node
 transport, with service-worker bypass and a fail-closed proxy for other browser
 network paths. Browser contexts are isolated between runs. New legitimate CDN
 hosts must be explicitly reviewed before adding them. Responses are capped at
@@ -66,3 +66,9 @@ Run `npm run test:security` for deterministic URL/DNS/redirect/transport checks.
 Run `npm run test:browser-security` on a Linux host supporting the bundled
 Chromium for real browser navigation, cookie, isolation and network-blocking
 checks. Neither suite contacts live retail sites or production deployments.
+
+The CSV importer and JSON API normalize pasted Markdown escapes (for example
+`https\://www\.flipkart.com/...`), add HTTPS to scheme-less URLs, and retain
+product IDs. Missing FSNs can be read from the supplied Flipkart `pid` parameter.
+Blank, `#N/A`, `-`, or incomplete Amazon `/dp/` values are skipped unless a valid
+10-character ASIN is supplied. Missing product IDs are never guessed.

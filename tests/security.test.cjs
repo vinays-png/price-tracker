@@ -4,8 +4,8 @@ const dns = require('node:dns/promises');
 const https = require('node:https');
 const { PassThrough } = require('node:stream');
 const { EventEmitter } = require('node:events');
-const safe = require('../.test-build/safe-request.js');
-const { installRequestGuard } = require('../.test-build/browser-network.js');
+const safe = require('../.test-build/lib/scrapers/safe-request.js');
+const { installRequestGuard } = require('../.test-build/lib/scrapers/browser-network.js');
 afterEach(() => mock.restoreAll());
 
 for (const url of [

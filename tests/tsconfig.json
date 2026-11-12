@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node",
     "strict": true, "esModuleInterop": true, "skipLibCheck": true,
-    "outDir": "../.test-build", "rootDir": "../lib/scrapers"
+    "outDir": "../.test-build", "rootDir": ".."
   },
-  "include": ["../lib/scrapers/safe-request.ts", "../lib/scrapers/browser-network.ts"]
+  "include": ["../lib/scrapers/safe-request.ts", "../lib/scrapers/browser-network.ts", "../lib/csv.ts", "../lib/source-row.ts"]
 }

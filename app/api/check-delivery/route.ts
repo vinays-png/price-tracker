@@ -1,3 +1,4 @@
+import { normalizeSourceRow } from "@/lib/source-row";
 import { parseCsvToRows } from "@/lib/csv";
 import { scrapeAmazonDelivery } from "@/lib/scrapers/amazon-delivery";
 import { scrapeFlipkartDelivery } from "@/lib/scrapers/flipkart-delivery";
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
 function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
   if (Array.isArray(rows) && rows.length) {
     return rows
-      .map(normalizeIncomingRow)
+      .map(normalizeSourceRow)
       .filter(
         (row) =>
           row.sku ||
@@ -82,18 +83,6 @@ function resolveRows(rows: SourceRow[] | undefined, csvText: string) {
   }
 
   return parseCsvToRows(csvText);
-}
-
-function normalizeIncomingRow(row: SourceRow): SourceRow {
-  return {
-    sku: cleanText(row.sku),
-    asin: cleanText(row.asin),
-    fsn: cleanText(row.fsn),
-    title: cleanText(row.title),
-    searchQuery: cleanText(row.searchQuery),
-    amazonUrl: cleanText(row.amazonUrl),
-    flipkartUrl: cleanText(row.flipkartUrl)
-  };
 }
 
 function normalizePincodes(pincodes: string[] | undefined) {

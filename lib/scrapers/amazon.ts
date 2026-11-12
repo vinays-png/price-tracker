@@ -22,7 +22,7 @@ export async function scrapeAmazon(row: SourceRow, options: AmazonScrapeOptions 
       currency: "INR",
       title: "",
       url: "",
-      notes: "Amazon skipped: no ASIN or Amazon Link was provided.",
+      notes: "Amazon skipped: no valid ASIN or usable Amazon product link was provided.",
       attempts: 0,
       completed: true
     };

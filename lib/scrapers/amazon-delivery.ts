@@ -13,7 +13,7 @@ export async function scrapeAmazonDelivery(row: SourceRow, pincode: string): Pro
       blocked: false,
       attempts: 0,
       url: "",
-      notes: "Amazon delivery skipped: no ASIN or Amazon Link was provided.",
+      notes: "Amazon delivery skipped: no valid ASIN or usable Amazon product link was provided.",
       deliveryLabel: "",
       deliveryDate: ""
     };

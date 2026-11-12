@@ -1,11 +1,11 @@
+import { validateScrapeUrl } from "../marketplace-url";
+export { validateScrapeUrl, isFlipkartUrl } from "../marketplace-url";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import { createGunzip, createInflate, createBrotliDecompress } from "node:zlib";
 import { BlockList, isIP } from "node:net";
 import type { IncomingHttpHeaders } from "node:http";
 
-const PRODUCT_HOSTS = new Set(["amazon.in", "www.amazon.in", "flipkart.com", "www.flipkart.com"]);
-const ASSET_DOMAINS = ["media-amazon.com", "ssl-images-amazon.com", "images-amazon.com", "flixcart.com", "flipkart.net"];
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
@@ -23,24 +23,6 @@ export function isPublicAddress(address: string) {
   const family = isIP(address);
   return family === 4 ? !blocked.check(address, "ipv4") :
     family === 6 && globalV6.check(address, "ipv6") && !blocked.check(address, "ipv6");
-}
-
-export function validateScrapeUrl(input: string, assets = false): URL {
-  const url = new URL(input);
-  const hostAllowed = PRODUCT_HOSTS.has(url.hostname) || (assets && ASSET_DOMAINS.some(
-    (domain) => url.hostname === domain || url.hostname.endsWith(`.${domain}`)
-  ));
-  if (url.protocol !== "https:" || url.username || url.password || url.port || !hostAllowed) {
-    throw new Error("Unsupported scraper URL: use an HTTPS Amazon India or Flipkart URL");
-  }
-  return url;
-}
-
-export function isFlipkartUrl(input: string) {
-  try {
-    const url = validateScrapeUrl(input);
-    return url.hostname === "flipkart.com" || url.hostname === "www.flipkart.com";
-  } catch { return false; }
 }
 
 export async function resolvePublicAddress(hostname: string) {

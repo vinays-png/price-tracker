@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const chromium = require('@sparticuz/chromium').default;
 const puppeteer = require('puppeteer-core');
-const safe = require('../.test-build/safe-request.js');
-const { BROWSER_NETWORK_ARGS, installRequestGuard } = require('../.test-build/browser-network.js');
+const safe = require('../.test-build/lib/scrapers/safe-request.js');
+const { BROWSER_NETWORK_ARGS, installRequestGuard } = require('../.test-build/lib/scrapers/browser-network.js');
 
 test('real Chromium: safe navigation, redirect rejection and blocked alternate network paths', {timeout:60000}, async () => {
   let hits = 0;
