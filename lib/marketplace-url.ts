@@ -1,6 +1,6 @@
 export type Marketplace = "amazon" | "flipkart";
 const PRODUCT_HOSTS = new Set(["amazon.in", "www.amazon.in", "flipkart.com", "www.flipkart.com"]);
-const ASSET_HOSTS = new Set(["1.rome.api.flipkart.com"]);
+const ASSET_HOSTS = new Set(["1.rome.api.flipkart.com", "2.rome.api.flipkart.com"]);
 const ASSET_DOMAINS = ["media-amazon.com", "ssl-images-amazon.com", "images-amazon.com", "flixcart.com", "flipkart.net"];
 
 export function validateScrapeUrl(input: string, assets = false): URL {
