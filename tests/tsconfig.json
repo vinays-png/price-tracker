@@ -1,8 +1,26 @@
 {
   "compilerOptions": {
-    "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node",
-    "strict": true, "esModuleInterop": true, "skipLibCheck": true,
-    "outDir": "../.test-build", "rootDir": ".."
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "../.test-build",
+    "rootDir": "..",
+    "baseUrl": "..",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
   },
-  "include": ["../lib/scrapers/safe-request.ts", "../lib/scrapers/browser-network.ts", "../lib/csv.ts", "../lib/source-row.ts"]
+  "include": [
+    "../lib/scrapers/safe-request.ts",
+    "../lib/scrapers/browser-network.ts",
+    "../lib/csv.ts",
+    "../lib/source-row.ts",
+    "../lib/scrapers/flipkart-resolver.ts",
+    "../lib/scrapers/flipkart.ts"
+  ]
 }

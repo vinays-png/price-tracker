@@ -1,7 +1,7 @@
 import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
-import { buildFlipkartSearchQueries } from "@/lib/search-query";
-import { fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
+import { buildFlipkartSearchQueries } from "../search-query";
+import { fetchHtml, normalizeWhitespace } from "./shared";
 import type { SourceRow } from "@/types";
 
 export type FlipkartIdentity = {
@@ -12,6 +12,9 @@ export type FlipkartIdentity = {
 };
 
 export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartIdentity | null> {
+  const preferredPid = isFlipkartUrl(row.flipkartUrl)
+    ? new URL(row.flipkartUrl).searchParams.get("pid") || row.fsn
+    : row.fsn;
   const directIdentity = parseFlipkartIdentifiers(row.flipkartUrl);
   if (directIdentity) {
     return {
@@ -25,25 +28,25 @@ export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartI
   // product listing. Try that lookup before fetching the generic URL again.
   const isGenericPidLink = isGenericFlipkartPidLink(row.flipkartUrl);
   let fsnIdentity: FlipkartIdentity | null = null;
-  if (isGenericPidLink && row.fsn) {
-    fsnIdentity = await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn);
+  if (isGenericPidLink && preferredPid) {
+    fsnIdentity = await resolveFromSearchQuery(preferredPid, "FSN (pid)", preferredPid);
     if (fsnIdentity) {
       return fsnIdentity;
     }
   }
 
-  const resolvedDirectIdentity = await resolveFromDirectLink(row.flipkartUrl, row.fsn);
+  const resolvedDirectIdentity = await resolveFromDirectLink(row.flipkartUrl, preferredPid);
   if (resolvedDirectIdentity) {
     return resolvedDirectIdentity;
   }
 
-  fsnIdentity ??= row.fsn ? await resolveFromSearchQuery(row.fsn, "FSN (pid)", row.fsn) : null;
+  fsnIdentity ??= preferredPid ? await resolveFromSearchQuery(preferredPid, "FSN (pid)", preferredPid) : null;
   if (fsnIdentity) {
     return fsnIdentity;
   }
 
   for (const candidate of buildFlipkartSearchQueries(row)) {
-    const identity = await resolveFromSearchQuery(candidate.query, candidate.label);
+    const identity = await resolveFromSearchQuery(candidate.query, candidate.label, preferredPid);
     if (identity) {
       return identity;
     }
@@ -75,15 +78,16 @@ async function resolveFromDirectLink(url: string, fallbackPid = "") {
     }
 
     const response = await fetchHtml(url, 1);
-    const pid =
-      normalizeWhitespace(parsedUrl.searchParams.get("pid") || "") ||
-      normalizeWhitespace(new URL(response.url).searchParams.get("pid") || "") ||
-      normalizeWhitespace(fallbackPid);
+    const expectedPid = normalizeWhitespace(parsedUrl.searchParams.get("pid") || fallbackPid);
+    const finalUrl = new URL(response.url || url);
+    const finalPid = normalizeWhitespace(finalUrl.searchParams.get("pid") || "");
+    if (!isFlipkartUrl(finalUrl.href) || (expectedPid && finalPid !== expectedPid)) return null;
+    const pid = expectedPid || finalPid;
     const lid =
       extractLidFromText(response.url) ||
       extractLidFromText(response.html);
 
-    if (!pid || !lid) {
+    if (!pid || !lid || !lid.startsWith(`LST${pid}`)) {
       return null;
     }
 
@@ -102,10 +106,15 @@ async function resolveFromSearchQuery(query: string, label: string, preferredPid
   const searchUrl = `https://www.flipkart.com/search?q=${encodeURIComponent(query)}`;
   const response = await fetchHtml(searchUrl, 1);
   const $ = cheerio.load(response.html);
-  const preferredCard = preferredPid
-    ? $(`a[href*="pid=${preferredPid}"][href*="/p/"]`).first()
-    : null;
-  const firstCard = preferredCard?.length ? preferredCard : $('a[href*="/p/"]').first();
+  const cards = $('a[href*="/p/"]');
+  const firstCard = preferredPid
+    ? cards.filter((_, element) => {
+        try {
+          const link = new URL($(element).attr("href") || "", "https://www.flipkart.com");
+          return isFlipkartUrl(link.href) && link.searchParams.get("pid") === preferredPid;
+        } catch { return false; }
+      }).first()
+    : cards.first();
   const href = firstCard.attr("href");
 
   if (!href) {
@@ -132,7 +141,7 @@ function parseFlipkartIdentifiers(url: string) {
     const pid = normalizeWhitespace(parsedUrl.searchParams.get("pid") || "");
     const lid = normalizeWhitespace(parsedUrl.searchParams.get("lid") || "");
 
-    if (!isFlipkartUrl(url) || !pid || !lid) return null;
+    if (!isFlipkartUrl(url) || !pid || !lid || !lid.startsWith(`LST${pid}`)) return null;
 
     return { pid, lid };
   } catch {

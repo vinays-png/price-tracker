@@ -1,9 +1,9 @@
 import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
-import { buildSearchQuery } from "@/lib/search-query";
-import { fetchRenderedHtml } from "@/lib/scrapers/browser";
-import { resolveFlipkartIdentity } from "@/lib/scrapers/flipkart-resolver";
-import { extractPrice, fetchHtml, normalizeWhitespace } from "@/lib/scrapers/shared";
+import { buildSearchQuery } from "../search-query";
+import { fetchRenderedHtml } from "./browser";
+import { resolveFlipkartIdentity } from "./flipkart-resolver";
+import { extractPrice, fetchHtml, normalizeWhitespace } from "./shared";
 import type { MarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult> {
@@ -38,7 +38,7 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
 
         return {
           marketplace: "flipkart",
-          ok: Boolean(resolved.price || resolved.title),
+          ok: resolved.price !== null,
           blocked: false,
           price: resolved.price,
           currency: "INR",
@@ -54,7 +54,7 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
 
       return {
         marketplace: "flipkart",
-        ok: Boolean(parsed.price || parsed.title),
+        ok: parsed.price !== null,
         blocked: false,
         price: parsed.price,
         currency: "INR",
@@ -89,7 +89,7 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
 
       return {
         marketplace: "flipkart",
-        ok: Boolean(parsed.price || parsed.title),
+        ok: parsed.price !== null,
         blocked: false,
         price: parsed.price,
         currency: "INR",
@@ -103,13 +103,21 @@ export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult>
       };
     }
 
+    if (row.fsn) {
+      return {
+        marketplace: "flipkart", ok: false, blocked: false, price: null,
+        currency: "INR", title: "", url: "", attempts: 1,
+        notes: "Flipkart did not return the requested product ID; no substitute was used."
+      };
+    }
+
     const initialUrl = `https://www.flipkart.com/search?q=${encodeURIComponent(buildSearchQuery(row))}`;
     const response = await fetchHtml(initialUrl, 1);
     const parsed = await resolveFlipkartSearchResult(response.html);
 
     return {
       marketplace: "flipkart",
-      ok: Boolean(parsed.price || parsed.title),
+      ok: parsed.price !== null,
       blocked: false,
       price: parsed.price,
       currency: "INR",
@@ -159,6 +167,10 @@ function isDirectFlipkartUrl(url: string) {
 
 async function fetchFlipkartProductPage(url: string) {
   const response = await fetchHtml(url, 1);
+  const expectedPid = new URL(url).searchParams.get("pid");
+  if (expectedPid && new URL(response.url || url).searchParams.get("pid") !== expectedPid) {
+    throw new Error("Flipkart redirected away from the requested product; no substitute was used.");
+  }
   const initial = parseFlipkartProductPage(response.html, response.url || url);
 
   if (initial.price !== null) {
@@ -167,6 +179,9 @@ async function fetchFlipkartProductPage(url: string) {
 
   try {
     const rendered = await fetchRenderedHtml(response.url || url);
+    if (expectedPid && new URL(rendered.url).searchParams.get("pid") !== expectedPid) {
+      return { parsed: initial, url: response.url || url, rendered: false };
+    }
     const parsed = parseFlipkartProductPage(rendered.html, response.url || url, rendered.text);
     return {
       parsed: {

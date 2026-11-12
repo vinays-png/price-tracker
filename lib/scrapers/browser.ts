@@ -54,7 +54,8 @@ export async function fetchRenderedHtml(url: string) {
 
     return {
       html,
-      text
+      text,
+      url: page.url()
     };
   });
 }
