@@ -34,3 +34,34 @@ test('direct-link resolution rejects redirects to a different PID', async()=>{
  assert.equal(await resolveFlipkartIdentity({...row,flipkartUrl:'https://www.flipkart.com/product/p/known'}),null);
  assert.equal(await resolveFlipkartIdentity(row),null);
 });
+
+test('FSN/link mismatch is surfaced without making a network request', async()=>{
+ const {scrapeFlipkart}=require('../.test-build/lib/scrapers/flipkart.js');
+ mock.method(shared,'fetchHtml',async()=>{throw new Error('must not fetch')});
+ const result=await scrapeFlipkart({...row,fsn:'DIFFERENT'});
+ assert.equal(result.ok,false);assert.equal(result.attempts,0);assert.match(result.notes,/does not match/);
+ assert.equal(shared.fetchHtml.mock.callCount(),0);
+});
+
+test('never mistakes EMI, shipping or recommendation amounts for product price',()=>{
+ const {parseFlipkartProductPage}=require('../.test-build/lib/scrapers/flipkart.js');
+ const html='<title>Online Shopping</title><div class="v1zwn21n">Shipping ₹99</div><div class="_30jeq3">₹500</div><p>EMI ₹200</p>';
+ assert.equal(parseFlipkartProductPage(html,row.flipkartUrl,'Shipping ₹99 EMI ₹200').price,null);
+});
+
+test('selects matching Product JSON-LD in graphs and ignores recommendation prices',()=>{
+ const {parseFlipkartProductPage}=require('../.test-build/lib/scrapers/flipkart.js');
+ const html='<script type="application/ld+json">'+JSON.stringify({'@graph':[
+  {'@type':'Product',sku:'OTHER',name:'Other',offers:{price:99,priceCurrency:'INR'}},
+  {'@type':['Product'],sku:'TRD123',name:'Requested',offers:{price:18499,priceCurrency:'INR'}}
+ ]})+'</script>';
+ const parsed=parseFlipkartProductPage(html,row.flipkartUrl);assert.equal(parsed.price,18499);assert.equal(parsed.title,'Requested');
+ assert.equal(parseFlipkartProductPage(html,'https://www.flipkart.com/product/p/x?pid=NOT_PRESENT').price,null);
+});
+
+test('direct price fetch honors explicit FSN even when the original URL has no PID', async()=>{
+ const {scrapeFlipkart}=require('../.test-build/lib/scrapers/flipkart.js');
+ mock.method(shared,'fetchHtml',async()=>({status:200,url:'https://www.flipkart.com/other/p/item?pid=OTHER',html:'<script type="application/ld+json">{"@type":"Product","sku":"OTHER","offers":{"price":99}}</script>'}));
+ const result=await scrapeFlipkart({...row,flipkartUrl:'https://www.flipkart.com/product/p/known'});
+ assert.equal(result.price,null);assert.equal(result.ok,false);assert.match(result.notes,/no substitute/);
+});

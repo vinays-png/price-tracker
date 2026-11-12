@@ -4,6 +4,8 @@ import { scrapeAmazon } from "@/lib/scrapers/amazon";
 import { scrapeFlipkart } from "@/lib/scrapers/flipkart";
 import type { CheckPricesResponse, RowResult, SourceRow } from "@/types";
 
+// India-only marketplaces serve region-specific product content.
+export const preferredRegion = "bom1";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {

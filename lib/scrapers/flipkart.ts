@@ -1,3 +1,4 @@
+import { flipkartIdentityConflict } from "../marketplace-url";
 import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
 import { buildSearchQuery } from "../search-query";
@@ -8,8 +9,13 @@ import type { MarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkart(row: SourceRow): Promise<MarketplaceResult> {
   try {
+    const conflict = flipkartIdentityConflict(row);
+    if (conflict) {
+      return { marketplace: "flipkart", ok: false, blocked: false, price: null,
+        currency: "INR", title: "", url: "", attempts: 0, notes: conflict };
+    }
     if (isDirectFlipkartUrl(row.flipkartUrl)) {
-      const direct = await fetchFlipkartProductPage(row.flipkartUrl);
+      const direct = await fetchFlipkartProductPage(row.flipkartUrl, row.fsn);
       const parsed = direct.parsed;
 
       if (parsed.price !== null) {
@@ -165,9 +171,9 @@ function isDirectFlipkartUrl(url: string) {
   }
 }
 
-async function fetchFlipkartProductPage(url: string) {
+async function fetchFlipkartProductPage(url: string, fallbackPid = "") {
   const response = await fetchHtml(url, 1);
-  const expectedPid = new URL(url).searchParams.get("pid");
+  const expectedPid = new URL(url).searchParams.get("pid") || fallbackPid;
   if (expectedPid && new URL(response.url || url).searchParams.get("pid") !== expectedPid) {
     throw new Error("Flipkart redirected away from the requested product; no substitute was used.");
   }
@@ -196,35 +202,30 @@ async function fetchFlipkartProductPage(url: string) {
   }
 }
 
-function parseFlipkartProductPage(html: string, url: string, visibleText = "") {
+export function parseFlipkartProductPage(html: string, url: string, _visibleText = "") {
   const $ = cheerio.load(html);
-  const structured = extractFlipkartStructuredProduct($);
+  const expectedPid = new URL(url).searchParams.get("pid") || "";
+  const structured = extractFlipkartStructuredProduct($, expectedPid);
   const title = normalizeWhitespace(
-    structured.title ||
-      $("span.B_NuCI").first().text() ||
-      $("h1").first().text() ||
-      $('meta[property="og:title"]').attr("content") ||
-      $("title").text() ||
-      ""
+    structured.title || $("span.B_NuCI").first().text() || $("h1").first().text() ||
+    $('meta[property="og:title"]').attr("content") || $("title").text() || ""
   );
-  const priceText = normalizeWhitespace(
-    $("div.v1zwn21n")
-      .filter((_, element) => /₹/.test($(element).text()))
-      .first()
-      .text() ||
-      $('meta[property="product:price:amount"]').attr("content") ||
-      $("div.Nx9bqj.CxhGGd").first().text() ||
-      $("div._30jeq3").first().text() ||
-      $('div[class*="Nx9bqj"]').first().text() ||
-      ""
-  );
-  const visiblePrice = visibleText.match(/₹\s*[\d,]+(?:\.\d{1,2})?/)?.[0] || "";
-  const price = structured.price ?? extractPrice(priceText) ?? extractPrice(visiblePrice);
-
+  // Never use the first arbitrary rupee amount: it may be EMI, shipping, a bank
+  // offer or a recommendation. Without matched Product JSON-LD, only known
+  // primary product price selectors on a PID-confirmed document are eligible.
+  let documentMatches = false;
+  try {
+    const ogUrl = $('meta[property="og:url"]').attr("content") || "";
+    documentMatches = Boolean(expectedPid && isFlipkartUrl(ogUrl) && new URL(ogUrl).searchParams.get("pid") === expectedPid);
+  } catch { /* No verifiable product metadata. */ }
+  const priceText = documentMatches ? normalizeWhitespace(
+    $('meta[property="product:price:amount"]').attr("content") ||
+    $("div.Nx9bqj.CxhGGd").first().text() || $("div._30jeq3._16Jk6d").first().text() || ""
+  ) : "";
+  const price = structured.price ?? extractPrice(priceText);
   return {
-    title,
-    price,
-    notes: price !== null ? "Price captured from Flipkart product page." : "Flipkart page loaded but visible price was not found.",
+    title, price,
+    notes: price !== null ? "Price captured from Flipkart product page." : "Flipkart page loaded but a verified product price was not found.",
     url
   };
 }
@@ -272,49 +273,31 @@ async function resolveFlipkartSearchResult(html: string) {
   };
 }
 
-function extractFlipkartStructuredProduct($: cheerio.CheerioAPI) {
-  const scripts = $('script[type="application/ld+json"]')
-    .map((_, element) => $(element).contents().text())
-    .get();
-
-  for (const script of scripts) {
+function extractFlipkartStructuredProduct($: cheerio.CheerioAPI, expectedPid: string) {
+  const empty = { title: "", price: null as number | null };
+  for (const element of $('script[type="application/ld+json"]').toArray()) {
     try {
-      const parsed = JSON.parse(script) as unknown;
-      const products = Array.isArray(parsed) ? parsed : [parsed];
-
-      for (const entry of products) {
+      const parsed: unknown = JSON.parse($(element).contents().text());
+      const queue: unknown[] = Array.isArray(parsed) ? [...parsed] : [parsed];
+      while (queue.length) {
+        const entry = queue.shift();
         if (!entry || typeof entry !== "object") continue;
-
-        const record = entry as {
-          "@type"?: string;
-          name?: string;
-          offers?: { price?: number | string } | Array<{ price?: number | string }>;
-        };
-
-        if (record["@type"] !== "Product") continue;
-
-        const offers = Array.isArray(record.offers) ? record.offers[0] : record.offers;
-        const rawPrice = offers?.price;
-        const price =
-          typeof rawPrice === "number"
-            ? rawPrice
-            : typeof rawPrice === "string"
-              ? extractPrice(rawPrice)
-              : null;
-
-        return {
-          title: normalizeWhitespace(record.name || ""),
-          price
-        };
+        const record = entry as Record<string, unknown>;
+        if (Array.isArray(record["@graph"])) queue.push(...record["@graph"]);
+        const types = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
+        if (!types.includes("Product")) continue;
+        let pid = typeof record.sku === "string" ? record.sku : typeof record.productID === "string" ? record.productID : "";
+        if (!pid && typeof record.url === "string" && isFlipkartUrl(record.url)) pid = new URL(record.url).searchParams.get("pid") || "";
+        if (!expectedPid || pid !== expectedPid) continue;
+        const offer = Array.isArray(record.offers) ? record.offers[0] : record.offers;
+        if (!offer || typeof offer !== "object") continue;
+        const { price: rawPrice, priceCurrency } = offer as { price?: unknown; priceCurrency?: unknown };
+        if (priceCurrency && priceCurrency !== "INR") continue;
+        const price = typeof rawPrice === "number" ? rawPrice : typeof rawPrice === "string" ? extractPrice(rawPrice) : null;
+        if (price === null || !Number.isFinite(price) || price < 0) continue;
+        return { title: normalizeWhitespace(typeof record.name === "string" ? record.name : ""), price };
       }
-    } catch {
-      continue;
-    }
+    } catch { continue; }
   }
-
-  return {
-    title: "",
-    price: null as number | null
-  };
+  return empty;
 }
-

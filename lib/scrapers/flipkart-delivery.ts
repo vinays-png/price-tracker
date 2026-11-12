@@ -1,3 +1,4 @@
+import { flipkartIdentityConflict } from "../marketplace-url";
 import * as cheerio from "cheerio";
 import { fetchRenderedHtml } from "@/lib/scrapers/browser";
 import { resolveFlipkartIdentity } from "@/lib/scrapers/flipkart-resolver";
@@ -6,6 +7,8 @@ import type { DeliveryMarketplaceResult, SourceRow } from "@/types";
 
 export async function scrapeFlipkartDelivery(row: SourceRow, pincode: string): Promise<DeliveryMarketplaceResult> {
   try {
+    const conflict = flipkartIdentityConflict(row);
+    if (conflict) return failureResult(conflict);
     if (!row.fsn.trim() && !row.flipkartUrl.trim()) {
       return {
         marketplace: "flipkart",

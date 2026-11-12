@@ -1,3 +1,4 @@
+import { flipkartIdentityConflict } from "../marketplace-url";
 import { isFlipkartUrl } from "./safe-request";
 import * as cheerio from "cheerio";
 import { buildFlipkartSearchQueries } from "../search-query";
@@ -12,6 +13,7 @@ export type FlipkartIdentity = {
 };
 
 export async function resolveFlipkartIdentity(row: SourceRow): Promise<FlipkartIdentity | null> {
+  if (flipkartIdentityConflict(row)) return null;
   const preferredPid = isFlipkartUrl(row.flipkartUrl)
     ? new URL(row.flipkartUrl).searchParams.get("pid") || row.fsn
     : row.fsn;

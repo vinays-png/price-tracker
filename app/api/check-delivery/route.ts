@@ -5,6 +5,8 @@ import { scrapeFlipkartDelivery } from "@/lib/scrapers/flipkart-delivery";
 import type { CheckDeliveryResponse, DeliveryRowResult, SourceRow } from "@/types";
 
 export const runtime = "nodejs";
+// India-only marketplaces serve region-specific product content.
+export const preferredRegion = "bom1";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {

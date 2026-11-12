@@ -1,12 +1,13 @@
 export type Marketplace = "amazon" | "flipkart";
 const PRODUCT_HOSTS = new Set(["amazon.in", "www.amazon.in", "flipkart.com", "www.flipkart.com"]);
+const ASSET_HOSTS = new Set(["1.rome.api.flipkart.com"]);
 const ASSET_DOMAINS = ["media-amazon.com", "ssl-images-amazon.com", "images-amazon.com", "flixcart.com", "flipkart.net"];
 
 export function validateScrapeUrl(input: string, assets = false): URL {
   const url = new URL(input);
-  const hostAllowed = PRODUCT_HOSTS.has(url.hostname) || (assets && ASSET_DOMAINS.some(
+  const hostAllowed = PRODUCT_HOSTS.has(url.hostname) || (assets && (ASSET_HOSTS.has(url.hostname) || ASSET_DOMAINS.some(
     (domain) => url.hostname === domain || url.hostname.endsWith(`.${domain}`)
-  ));
+  )));
   if (url.protocol !== "https:" || url.username || url.password || url.port || !hostAllowed) {
     throw new Error("Unsupported scraper URL: use an HTTPS Amazon India or Flipkart URL");
   }
@@ -48,4 +49,12 @@ export function normalizeMarketplaceUrl(value: string | undefined, marketplace: 
     }
     return url.href;
   } catch { return ""; }
+}
+
+export function flipkartIdentityConflict(row: { fsn: string; flipkartUrl: string }) {
+  if (!row.fsn || !isFlipkartUrl(row.flipkartUrl)) return "";
+  const pid = new URL(row.flipkartUrl).searchParams.get("pid");
+  return pid && pid !== row.fsn
+    ? "Flipkart FSN does not match the product ID in the link. Correct one before fetching."
+    : "";
 }

@@ -126,3 +126,9 @@ test('rejects oversized decompressed responses', async () => {
   network([{headers:{'content-encoding':'gzip'}, body:require('node:zlib').gzipSync(Buffer.alloc(9 * 1024 * 1024))}]);
   await assert.rejects(safe.safeRequest('https://amazon.in/'), /too large/);
 });
+
+test('allows only the observed first-party rendering API as a resource, never navigation',()=>{
+ assert.ok(safe.validateScrapeUrl('https://1.rome.api.flipkart.com/api/4/page/fetch',true));
+ assert.throws(()=>safe.validateScrapeUrl('https://1.rome.api.flipkart.com/api/4/page/fetch'));
+ assert.throws(()=>safe.validateScrapeUrl('https://1.rome.api.flipkart.com.evil.test/',true));
+});
